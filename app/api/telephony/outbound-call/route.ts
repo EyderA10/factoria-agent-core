@@ -12,7 +12,7 @@ const OutboundCallSchema = z.object({
 });
 
 /**
- * POC de telefonía outbound: factoría → API ElevenLabs → Twilio → destino.
+ * Telefonía outbound: factoría → API ElevenLabs → Twilio → destino.
  * Demuestra qué se puede provisionar vía API. Requiere un número Twilio importado
  * y un agente con mensaje inicial configurado.
  */

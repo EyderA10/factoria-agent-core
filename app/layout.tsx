@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FactorIA Agent Platform — POC",
+  title: "FactorIA Agent Core",
   description:
-    "POC omnicanal: Web / WhatsApp / Phone → ElevenLabs Conversational AI → FactorIA Tool Layer → Sistemas del cliente.",
+    "Núcleo multi-tenant de agentes: Web / WhatsApp / Phone → agente de voz (ElevenLabs) → FactorIA Tool Layer → sistemas del cliente.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

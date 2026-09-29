@@ -1,22 +1,29 @@
 {
-  "name": "factoria-agent-platform-poc",
-  "version": "0.1.0",
+  "name": "factoria-agent-core",
+  "version": "0.2.0",
   "private": true,
-  "description": "FactorIA Agent Platform POC - ElevenLabs Conversational AI + FactorIA Tool Layer",
+  "description": "FactorIA Agent Core - agente IA multi-tenant (ElevenLabs Conversational AI + FactorIA Tool Layer)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "setup": "tsx scripts/setup-agent.ts",
-    "setup:dry-run": "tsx scripts/setup-agent.ts --dry-run"
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "setup": "tsx scripts/setup.ts",
+    "setup:new": "tsx scripts/setup-new.ts"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.68.0",
     "@elevenlabs/react": "^1.15.2",
     "ai": "^7.0.113",
+    "drizzle-orm": "^0.45.3",
     "lucide-react": "^1.47.0",
     "next": "16.3.6",
+    "postgres": "^3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "^4.6.5"
@@ -26,8 +33,16 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "dotenv": "^18.0.4",
+    "drizzle-kit": "^0.31.11",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^5.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
   }
 }

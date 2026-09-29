@@ -24,9 +24,21 @@ export interface SessionForAgent {
   signedUrl?: string;
 }
 
+/**
+ * Resuelve el Agent ID de un tenant: el materializado en DB (provisioning) es la
+ * ÚNICA fuente de verdad. Sin tenant provisionado no hay agente — no hay fallback
+ * global: un agente "por defecto" escondería fallos de provisioning.
+ */
+export async function resolveAgentIdForTenant(tenantId?: string | null): Promise<string | undefined> {
+  if (!tenantId) return undefined;
+  const { getAgentForTenant } = await import("@/lib/db/repo");
+  const agent = await getAgentForTenant(tenantId);
+  return agent?.elevenlabsAgentId ?? undefined;
+}
+
 /** Genera un signed URL (agentes privados) o devuelve el agentId (agentes públicos). */
-export async function sessionForAgent(requestedAgentId?: string): Promise<SessionForAgent> {
-  const agentId = requestedAgentId ?? process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID;
+export async function sessionForAgent(requestedAgentId?: string, tenantId?: string | null): Promise<SessionForAgent> {
+  const agentId = requestedAgentId ?? (await resolveAgentIdForTenant(tenantId));
   if (!agentId) {
     throw new Error("agent_id_required");
   }

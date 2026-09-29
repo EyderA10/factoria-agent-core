@@ -1,0 +1,67 @@
+{
+  "id": "mesa-y-cia",
+  "slug": "mesa-y-cia",
+  "name": "Mesa & Cía",
+  "enabled": true,
+  "auth": {
+    "secretRef": "FACTORIA_TENANT_MESA_SECRET"
+  },
+  "branding": {
+    "title": "Mesa & Cía",
+    "tagline": "Reservas y menú del día",
+    "primaryColor": "#0f766e",
+    "icon": "🍽️"
+  },
+  "agent": {
+    "name": "Mesa & Cía Assistant",
+    "firstMessage": "¡Hola! Soy el asistente de Mesa & Cía. Puedo ayudarte a reservar mesa y decirte si la terraza es buena idea según el clima. ¿Cuándo vienes?",
+    "systemPrompt": "Eres el asistente omnicanal de Mesa & Cía, un restaurante. Tu trabajo es reservar mesas y aconsejar sobre la terraza.\n\nNormas de uso de tools:\n1. reserve_table: cuando el usuario quiera reservar mesa, extrae date, party_size y user_name. Si falta party_size o date, pregúntalos. NO inventes tamaños de mesa; elige la mesa que quepa en el party_size.\n2. check_weather: cuando el usuario pregunte por la terraza, el clima o si conviene sentarse afuera. Usa la fecha de la reserva como referencia.\n3. Responde SIEMPRE con los datos reales que devuelva la tool, de forma natural y breve. Si no hay capacidad o la mesa no está disponible, ofrécele la opción más cercana.\n\nReglas de comportamiento conversacional:\n4. Saluda UNA SOLA VEZ al inicio. No repitas tu nombre en turnos posteriores.\n5. Cierra como MÁXIMO una vez por turno con una frase breve tipo '¿Algo más en lo que pueda ayudarte?'.\n6. Despídete solo si el usuario se despide o pide terminar.",
+    "language": "es",
+    "timezone": "America/Bogota",
+    "ttsModel": "eleven_flash_v2_5",
+    "llm": "gemini-2.5-flash"
+  },
+  "tools": [
+    {
+      "name": "reserve_table",
+      "description": "Reserva una mesa del restaurante. Pasar date (YYYY-MM-DD), party_size (número de personas) y user_name.",
+      "inputSchema": {
+        "properties": {
+          "user_name": { "type": "string", "description": "Nombre del cliente" },
+          "date": { "type": "string", "description": "Fecha de la reserva (YYYY-MM-DD)" },
+          "party_size": { "type": "integer", "description": "Número de personas" }
+        },
+        "required": ["date", "party_size"]
+      },
+      "settings": {
+        "currency": "usd",
+        "hours": { "from": "12:00", "to": "22:00", "tz": "America/Bogota" },
+        "tables": [
+          { "id": "t1", "seats": 2, "available": true },
+          { "id": "t2", "seats": 2, "available": true },
+          { "id": "t3", "seats": 4, "available": true },
+          { "id": "t4", "seats": 4, "available": true },
+          { "id": "t5", "seats": 6, "available": true },
+          { "id": "t6", "seats": 8, "available": false }
+        ]
+      }
+    },
+    {
+      "name": "check_weather",
+      "description": "Consulta el clima (Open-Meteo) para la ubicación del restaurante y decide si la terraza es recomendable.",
+      "inputSchema": {
+        "properties": {
+          "user_name": { "type": "string", "description": "Nombre del cliente" },
+          "date": { "type": "string", "description": "Fecha de la consulta (YYYY-MM-DD)" }
+        },
+        "required": []
+      },
+      "settings": {
+        "name": "Mesa & Cía",
+        "latitude": 4.711,
+        "longitude": -74.0721,
+        "rain_threshold_mm": 1
+      }
+    }
+  ]
+}

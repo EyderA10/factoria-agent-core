@@ -1,0 +1,39 @@
+{
+  "id": "nuevo_cliente",
+  "slug": "nuevo_cliente",
+  "name": "Nombre del Cliente",
+  "enabled": true,
+  "auth": {
+    "secretRef": "FACTORIA_TENANT_NUEVOCLIENTE_SECRET"
+  },
+  "branding": {
+    "title": "Nombre del Cliente",
+    "tagline": "Breve descripción",
+    "primaryColor": "#4f46e5",
+    "icon": "🤖"
+  },
+  "agent": {
+    "name": "<Cliente> Assistant",
+    "firstMessage": "¡Hola! Soy el asistente de <Cliente>. ¿En qué puedo ayudarte?",
+    "systemPrompt": "Eres el asistente omnicanal de <Cliente>. Describe aquí qué tools usa este cliente y cuándo llamarlas.\n\nReglas de comportamiento:\n- Responde SIEMPRE con datos reales de las tools.\n- Saluda UNA SOLA VEZ al inicio.\n- Cierra como MÁXIMO una vez por turno con '¿Algo más...?'.\n- Despídete solo si el usuario se despide.",
+    "language": "es",
+    "timezone": "America/Bogota",
+    "ttsModel": "eleven_flash_v2_5",
+    "llm": "gemini-2.5-flash"
+  },
+  "tools": [
+    {
+      "name": "mi_tool",
+      "description": "Descripción de qué consulta/hace esta tool.",
+      "inputSchema": {
+        "properties": {
+          "user_name": { "type": "string", "description": "Nombre del usuario final" }
+        },
+        "required": []
+      },
+      "settings": {
+        "aquí": "van los datos/reglas/parámetros de negocio de este cliente"
+      }
+    }
+  ]
+}

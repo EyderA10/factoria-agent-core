@@ -1,0 +1,47 @@
+{
+  "id": "vitea",
+  "slug": "vitea",
+  "name": "Vitea",
+  "enabled": true,
+  "auth": {
+    "secretRef": "FACTORIA_TENANT_VITEA_SECRET"
+  },
+  "branding": {
+    "title": "Vitea",
+    "tagline": "Tienda online de moda",
+    "primaryColor": "#be185d",
+    "icon": "🛍️"
+  },
+  "agent": {
+    "name": "Vitea Agent",
+    "firstMessage": "¡Hola! Soy el asistente de Vitea. Puedo consultarte disponibilidad de productos, tallas y precios. ¿Qué buscas?",
+    "systemPrompt": "Eres el asistente omnicanal de Vitea, una tienda online de moda. Tu trabajo es ayudar a encontrar productos, tallas y precios.\n\nNormas de uso de tools:\n1. check_stock: cuando el usuario pregunte por un producto, talla o precio, llama a la tool. Usa la referencia (sku) si el usuario la menciona, o una descripción del producto.\n2. Responde SIEMPRE con los datos reales que devuelva la tool: nombre, precio, tallas disponibles y stock. Si un producto no existe, dilo y sugiere la alternativa más cercana.\n3. Nunca inventes precios ni disponibilidad.\n\nReglas de comportamiento conversacional:\n4. Saluda UNA SOLA VEZ al inicio. No repitas tu nombre en turnos posteriores.\n5. Cierra como MÁXIMO una vez por turno con una frase breve tipo '¿Algo más en lo que pueda ayudarte?'.\n6. Despídete solo si el usuario se despide o pide terminar.",
+    "language": "es",
+    "timezone": "America/Bogota",
+    "ttsModel": "eleven_flash_v2_5",
+    "llm": "gemini-2.5-flash"
+  },
+  "tools": [
+    {
+      "name": "check_stock",
+      "description": "Consulta disponibilidad, tallas y precio de un producto de la tienda Vitea. Pasar 'query' (nombre/ref del producto) o 'sku'.",
+      "inputSchema": {
+        "properties": {
+          "query": { "type": "string", "description": "Nombre o referencia del producto" },
+          "sku": { "type": "string", "description": "SKU exacto del producto" }
+        },
+        "required": []
+      },
+      "settings": {
+        "currency": "usd",
+        "catalog": [
+          { "sku": "VIT-001", "name": "Camiseta básica algodón", "category": "ropa", "price": 18, "sizes": { "S": 12, "M": 20, "L": 14, "XL": 6 } },
+          { "sku": "VIT-002", "name": "Jeans slim negro", "category": "ropa", "price": 48, "sizes": { "28": 4, "30": 9, "32": 11, "34": 7 } },
+          { "sku": "VIT-003", "name": "Chaqueta impermeable", "category": "abrigo", "price": 82, "sizes": { "M": 5, "L": 8, "XL": 3 } },
+          { "sku": "VIT-004", "name": "Zapatillas urbanas", "category": "calzado", "price": 62, "sizes": { "38": 6, "40": 10, "42": 9, "44": 4 } },
+          { "sku": "VIT-005", "name": "Mochila urbana 20L", "category": "accesorios", "price": 35, "sizes": { "único": 18 } }
+        ]
+      }
+    }
+  ]
+}

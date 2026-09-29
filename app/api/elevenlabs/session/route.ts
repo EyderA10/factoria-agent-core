@@ -11,12 +11,14 @@ export const dynamic = "force-dynamic";
  * - Sin configuración → 503 con instrucciones para que el widget muestre el estado "no configurado".
  *
  * GET /api/elevenlabs/session?agentId=agent_xxx
+ * GET /api/elevenlabs/session?tenant=vitea   (resuelve el agente del tenant en DB)
  */
 export async function GET(req: NextRequest) {
   const agentId = req.nextUrl.searchParams.get("agentId") ?? undefined;
+  const tenantId = req.nextUrl.searchParams.get("tenant") ?? undefined;
 
   try {
-    const session = await sessionForAgent(agentId);
+    const session = await sessionForAgent(agentId, tenantId);
     return NextResponse.json(session);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown_error";
@@ -26,7 +28,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           error: "not_configured",
-          hint: "Define NEXT_PUBLIC_ELEVENLABS_AGENT_ID o pasa ?agentId=.... Crea el agente con `npm run setup`.",
+          hint: "Pasa ?tenant=<id> o ?agentId=.... Crea el agente del tenant con `npm run setup -- --tenant <id>`.",
         },
         { status: 400 }
       );

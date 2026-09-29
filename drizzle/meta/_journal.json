@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790632650757,
+      "tag": "0000_yielding_prima",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790646258392,
+      "tag": "0001_fixed_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790646693108,
+      "tag": "0002_warm_nick_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790646728235,
+      "tag": "0003_non_unique_lookup_indexes",
+      "breakpoints": true
+    }
+  ]
+}

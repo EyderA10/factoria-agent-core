@@ -7,7 +7,8 @@ import {
   useConversationMode,
   useConversationStatus,
 } from "@elevenlabs/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Mic, MicOff, Power, Send } from "lucide-react";
 
 type MessageRole = "user" | "agent";
 
@@ -19,38 +20,64 @@ interface ChatMessage {
 }
 
 interface WidgetProps {
-  /** Agent ID de ElevenLabs (opcional si está definido en NEXT_PUBLIC_ELEVENLABS_AGENT_ID) */
+  /** Agent ID de ElevenLabs (opcional si el tenant ya está provisionado en DB). */
   agentId?: string;
-  /** Forzar el modo demo simulado (etiquetado). Por defecto se activa si falta configuración. */
-  demo?: boolean;
+  /** Tenant (id de config/tenants). El agente se resuelve en DB por tenant. */
+  tenantId?: string;
   title?: string;
+  /** White-label: color e ícono del cliente. */
+  primaryColor?: string;
+  icon?: string;
 }
 
-let nextId = 1;
+const ECHO_WINDOW_MS = 2000;
 
-export function FactorIAChatWidget({ agentId, demo, title = "FactorIA Agent" }: WidgetProps) {
-  const [mode, setMode] = useState<"demo" | "real">(demo ? "demo" : "real");
+function normalize(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+export function FactorIAChatWidget({
+  agentId,
+  tenantId,
+  title = "FactorIA Agent",
+  primaryColor = "#4f46e5",
+  icon,
+}: WidgetProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [setupNeeded, setSetupNeeded] = useState(false);
-
-  const demoAvailable = demo || process.env.NEXT_PUBLIC_FACTORIA_DEMO_MODE === "true";
-  const canTryDemo = !demo && demoAvailable && setupNeeded;
+  const [micMuted, setMicMuted] = useState(true);
+  const nextIdRef = useRef(1);
+  const lastLocalRef = useRef<{ role: MessageRole; text: string; at: number } | null>(null);
 
   const pushMessage = useCallback((role: MessageRole, text: string, tentative = false) => {
-    setMessages((prev) => {
-      if (tentative) {
-        const withoutPending = prev.filter((m) => !m.tentative);
-        return [...withoutPending, { id: nextId++, role, text, tentative }];
-      }
-      return [...prev, { id: nextId++, role, text }];
-    });
+    const id = nextIdRef.current++;
+    lastLocalRef.current = { role, text: normalize(text), at: Date.now() };
+    setMessages((prev) =>
+      tentative
+        ? [...prev.filter((m) => !m.tentative), { id, role, text, tentative }]
+        : [...prev, { id, role, text }]
+    );
   }, []);
 
   const handleSdkMessage = useCallback(
     (props: { message?: string; role?: string }) => {
       const text = props.message?.trim();
-      if (text) pushMessage(props.role === "user" ? "user" : "agent", text);
+      if (!text) return;
+
+      const role: MessageRole = props.role === "user" ? "user" : "agent";
+      const lastLocal = lastLocalRef.current;
+      const isEcho =
+        lastLocal !== null &&
+        lastLocal.role === role &&
+        lastLocal.text === normalize(text) &&
+        Date.now() - lastLocal.at < ECHO_WINDOW_MS;
+
+      if (isEcho) {
+        lastLocalRef.current = null;
+        return;
+      }
+      pushMessage(role, text);
     },
     [pushMessage]
   );
@@ -58,10 +85,11 @@ export function FactorIAChatWidget({ agentId, demo, title = "FactorIA Agent" }: 
   const handleSdkConnect = useCallback(() => {
     setError(null);
     setSetupNeeded(false);
-    pushMessage("agent", "Conexión establecida. Puedes hablar o escribir tu consulta.");
-  }, [pushMessage]);
+    setMicMuted(true);
+  }, []);
 
   const handleSdkDisconnect = useCallback(() => {
+    setMicMuted(true);
     pushMessage("agent", "Conversación finalizada.");
   }, [pushMessage]);
 
@@ -70,81 +98,145 @@ export function FactorIAChatWidget({ agentId, demo, title = "FactorIA Agent" }: 
     setError(message || "Error en la conversación");
   }, []);
 
-  if (setupNeeded && canTryDemo) {
-    return (
-      <SetupPanel
-        title={title}
-        onTryDemo={() => {
-          setSetupNeeded(false);
-          setMode("demo");
-        }}
-      />
-    );
+  if (setupNeeded) {
+    return <SetupPanel title={title} tenantId={tenantId} />;
   }
 
   return (
     <ConversationProvider
+      isMuted={micMuted}
+      onMutedChange={setMicMuted}
       onMessage={handleSdkMessage}
       onError={handleSdkError}
       onConnect={handleSdkConnect}
       onDisconnect={handleSdkDisconnect}
     >
       <div className="fixed bottom-5 right-5 z-50 flex w-88 max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/95 text-white shadow-2xl backdrop-blur-md">
-        <Header title={title} demo={mode === "demo"} />
+        <Header title={title} primaryColor={primaryColor} icon={icon} />
         <MessageList messages={messages} error={error} />
-        {mode === "real" ? (
-          <RealControls
-            agentId={agentId}
-            pushMessage={pushMessage}
-            onSetupNeeded={() => setSetupNeeded(true)}
-          />
-        ) : (
-          <DemoControls pushMessage={pushMessage} />
-        )}
+        <RealControls
+          agentId={agentId}
+          tenantId={tenantId}
+          primaryColor={primaryColor}
+          pushMessage={pushMessage}
+          onSetupNeeded={() => setSetupNeeded(true)}
+        />
       </div>
     </ConversationProvider>
   );
 }
 
-function Header({ title, demo }: { title: string; demo: boolean }) {
+function Header({
+  title,
+  primaryColor,
+  icon,
+}: {
+  title: string;
+  primaryColor: string;
+  icon?: string;
+}) {
+  const { status } = useConversationStatus();
+  const { isSpeaking, isListening } = useConversationMode();
+  const { isMuted } = useConversationInput();
+  const { endSession } = useConversationControls();
+
+  const connected = status === "connected";
+  const listening = connected && !isMuted && isListening;
+  const speaking = connected && isSpeaking;
+
+  const dotClass =
+    status === "connecting"
+      ? "bg-amber-400 animate-pulse"
+      : connected
+        ? speaking
+          ? "bg-emerald-400 animate-pulse"
+          : listening
+            ? "bg-emerald-400 animate-pulse [animation-duration:1.8s]"
+            : "bg-emerald-400"
+        : "bg-rose-500";
+
+  const statusLabel = statusAnnouncement(status, isMuted, speaking, listening);
+
+  const handleEnd = useCallback(() => {
+    endSession();
+  }, [endSession]);
+
   return (
     <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-      <div className="flex items-center gap-2">
-        <span
-          className={`h-2.5 w-2.5 rounded-full ${
-            demo ? "bg-amber-400" : "bg-emerald-400 animate-pulse"
-          }`}
-        />
-        <span className="text-sm font-semibold tracking-wide text-slate-100">{title}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        {icon ? (
+          <span aria-hidden className="shrink-0">
+            {icon}
+          </span>
+        ) : null}
+        <span aria-hidden className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotClass}`} />
+        <span className="truncate text-sm font-semibold tracking-wide text-slate-100">{title}</span>
+        <span className="sr-only" aria-live="polite">
+          {statusLabel}
+        </span>
       </div>
-      {demo ? (
-        <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
-          Demo simulada
+      <div className="flex shrink-0 items-center gap-1.5">
+        <span
+          className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider"
+          style={{ background: `${primaryColor}33`, color: primaryColor }}
+        >
+          Voz + texto
         </span>
-      ) : (
-        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">
-          ElevenLabs
-        </span>
-      )}
+        {connected && (
+          <button
+            type="button"
+            onClick={handleEnd}
+            aria-label="Finalizar conversación"
+            title="Finalizar conversación"
+            className="flex h-6 w-6 items-center justify-center rounded-md bg-rose-500/15 text-rose-300 transition hover:bg-rose-600 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+          >
+            <Power size={13} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
+function statusAnnouncement(
+  status: string,
+  isMuted: boolean,
+  speaking: boolean,
+  listening: boolean
+): string {
+  if (status === "connecting") return "Conectando con el agente.";
+  if (status !== "connected") return "Sin conexión con el agente.";
+  if (speaking) return "El agente está hablando.";
+  if (listening) return "El micrófono está activo. Te escucho.";
+  return isMuted
+    ? "Conectado en modo texto. Activa el micrófono para hablar."
+    : "Conectado. Micrófono activo.";
+}
+
 function MessageList({ messages, error }: { messages: ChatMessage[]; error: string | null }) {
+  const { status } = useConversationStatus();
+  const { isMuted } = useConversationInput();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const connected = status === "connected";
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, error]);
 
+  const emptyText = error
+    ? "No se pudo iniciar la conversación."
+    : connected
+      ? isMuted
+        ? "Conexión establecida. Escribe tu consulta o activa el micrófono."
+        : "Conexión establecida. Te escucho."
+      : "Pulsa «Iniciar conversación» para hablar o escribir.";
+
   return (
     <div ref={scrollRef} className="flex h-64 flex-col gap-2 overflow-y-auto bg-slate-950 p-3 text-xs">
       {messages.length === 0 && (
         <div className="flex h-full items-center justify-center px-6 text-center italic text-slate-500">
-          {error
-            ? "No se pudo iniciar la conversación."
-            : "Haz clic en «Iniciar conversación» para probar el agente."}
+          {emptyText}
         </div>
       )}
 
@@ -171,24 +263,28 @@ function MessageList({ messages, error }: { messages: ChatMessage[]; error: stri
 
 function RealControls({
   agentId,
+  tenantId,
+  primaryColor,
   pushMessage,
   onSetupNeeded,
 }: {
   agentId?: string;
+  tenantId?: string;
+  primaryColor: string;
   pushMessage: (role: MessageRole, text: string, tentative?: boolean) => void;
   onSetupNeeded: () => void;
 }) {
-  const { startSession, endSession, sendUserMessage, sendUserActivity } = useConversationControls();
+  const { startSession, sendUserMessage, sendUserActivity } = useConversationControls();
   const { status } = useConversationStatus();
-  const { isSpeaking } = useConversationMode();
   const { isMuted, setMuted } = useConversationInput();
 
   const [text, setText] = useState("");
   const [starting, setStarting] = useState(false);
 
   const connected = status === "connected";
+  const busy = starting || status === "connecting";
 
-  const userId = useMemo(() => {
+  const [userId] = useState(() => {
     if (typeof window === "undefined") return "pending";
     const key = "factoria_user_id";
     let id = window.localStorage.getItem(key);
@@ -197,18 +293,15 @@ function RealControls({
       window.localStorage.setItem(key, id);
     }
     return id;
-  }, []);
+  });
 
   const handleStart = useCallback(async () => {
     setStarting(true);
     try {
-      try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch {
-        await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {});
-      }
-
-      const res = await fetch(`/api/elevenlabs/session?agentId=${encodeURIComponent(agentId ?? "")}`);
+      const query = tenantId
+        ? `tenant=${encodeURIComponent(tenantId)}`
+        : `agentId=${encodeURIComponent(agentId ?? "")}`;
+      const res = await fetch(`/api/elevenlabs/session?${query}`);
       const body = (await res.json().catch(() => ({}))) as {
         signedUrl?: string;
         agentId?: string;
@@ -235,15 +328,7 @@ function RealControls({
     } finally {
       setStarting(false);
     }
-  }, [agentId, onSetupNeeded, pushMessage, startSession, userId]);
-
-  const handleEnd = useCallback(async () => {
-    try {
-      await endSession();
-    } catch {
-      // sesión ya finalizada
-    }
-  }, [endSession]);
+  }, [agentId, tenantId, onSetupNeeded, pushMessage, startSession, userId]);
 
   const handleSend = useCallback(() => {
     const value = text.trim();
@@ -252,8 +337,6 @@ function RealControls({
     sendUserMessage(value);
     setText("");
   }, [connected, pushMessage, sendUserMessage, text]);
-
-  const busy = starting || status === "connecting";
 
   // Mientras el usuario esté inactivo, resetea periódicamente el timeout de
   // turno de ElevenLabs (evento user_activity). Sin esto, el agente retoma el
@@ -267,196 +350,87 @@ function RealControls({
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <div className="flex gap-1.5">
-        <span className="rounded-md bg-slate-800 px-2 py-1 font-mono text-[10px] text-slate-400">
-          {status}
-          {connected && isSpeaking ? " · hablando" : ""}
-        </span>
-        {connected && (
-          <button
-            type="button"
-            onClick={() => setMuted(!isMuted)}
-            className="rounded-md bg-slate-800 px-2 py-1 text-[10px] font-medium text-slate-300 transition hover:bg-slate-700"
-          >
-            {isMuted ? "Desmutear" : "Mutear"}
-          </button>
-        )}
-      </div>
-
-      <div className="flex gap-1.5">
-        {!connected ? (
-          <button
-            type="button"
-            onClick={handleStart}
-            disabled={busy}
-            className="flex-1 rounded-xl bg-linear-to-r from-blue-600 to-indigo-600 py-2.5 text-xs font-semibold text-white shadow transition hover:from-blue-500 hover:to-indigo-500 active:scale-[0.98] disabled:opacity-60"
-          >
-            {starting ? "Conectando…" : "Iniciar conversación"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleEnd}
-            className="flex-1 rounded-xl bg-rose-600 py-2.5 text-xs font-semibold text-white shadow transition hover:bg-rose-500 active:scale-[0.98]"
-          >
-            Finalizar
-          </button>
-        )}
-      </div>
+      {!connected && (
+        <button
+          type="button"
+          onClick={handleStart}
+          disabled={busy}
+          style={{ background: primaryColor }}
+          className="rounded-xl py-2.5 text-xs font-semibold text-white shadow transition active:scale-[0.98] disabled:opacity-60"
+        >
+          {busy ? "Conectando…" : "Iniciar conversación"}
+        </button>
+      )}
 
       <form
         onSubmit={(e) => {
           e.preventDefault();
           handleSend();
         }}
-        className="flex gap-1.5"
+        className="flex items-center gap-1.5"
       >
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={!connected}
           placeholder={connected ? "Escribe al agente…" : "Conecta para hablar/escribir"}
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-2 text-xs text-white placeholder:text-slate-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-2 text-xs text-white placeholder:text-slate-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
         />
+        <button
+          type="button"
+          onClick={() => setMuted(!isMuted)}
+          disabled={!connected}
+          aria-pressed={!isMuted}
+          aria-label={isMuted ? "Activar micrófono" : "Silenciar micrófono"}
+          title={isMuted ? "Activar micrófono" : "Silenciar micrófono"}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition focus:outline-none focus-visible:ring-2 disabled:opacity-40 ${
+            isMuted
+              ? "bg-slate-800 text-slate-400 hover:bg-slate-700"
+              : "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+          } focus-visible:ring-emerald-400`}
+        >
+          {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+        </button>
         <button
           type="submit"
           disabled={!connected || !text.trim()}
-          className="rounded-lg bg-slate-700 px-3 text-xs font-semibold transition hover:bg-slate-600 disabled:opacity-40"
+          aria-label="Enviar mensaje"
+          title="Enviar mensaje"
+          style={connected && text.trim() ? { background: primaryColor } : undefined}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-700 text-white transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-40"
         >
-          Enviar
+          <Send size={16} />
         </button>
       </form>
+
+      {connected && isMuted && (
+        <p className="text-[10px] text-slate-500">Toca el micrófono para hablar.</p>
+      )}
     </div>
   );
 }
 
-type DemoReply = { role: MessageRole; text: string };
-
-function buildDemoReply(input: string, option?: string): DemoReply {
-  const text = input.toLowerCase();
-
-  if (text.includes("categor") || text.includes("vip") || text.includes("premium")) {
-    const category = text.includes("vip") ? "vip" : text.includes("premium") ? "premium" : "general";
-    const prices: Record<string, string> = { general: "15 USD", premium: "25 USD", vip: "35 USD" };
-    return {
-      role: "agent",
-      text: `[tool: check_availability] confirmé disponibilidad para la categoría ${category}` +
-        `\n• Precio por entrada: ${prices[category]}\n• Horarios: 10:00 AM, 12:30 PM, 04:00 PM\n` +
-        `(Demo simulada — sin ElevenLabs. Con el agente real, esta frase la diría el LLM con voz.)`,
-    };
-  }
-  if (text.includes("precio") || text.includes("valor") || text.includes("cuánto")) {
-    return {
-      role: "agent",
-      text: "Las categorías disponibles son general (15 USD), premium (25 USD) y vip (35 USD). (Demo simulada)",
-    };
-  }
-  if (text.includes("agente") || text.includes("humano") || text.includes("persona")) {
-    return {
-      role: "agent",
-      text: "Puedo transferirte a un humano. En phone/WhatsApp se usa el system tool «Transfer to number». (Demo simulada)",
-    };
-  }
-  if (option === "welcome") {
-    return {
-      role: "agent",
-      text: "¡Hola! Soy el agente de FactorIA. Pregúntame por disponibilidad, precios u horarios. (Demo simulada)",
-    };
-  }
-  return {
-    role: "agent",
-    text: "Soy una demo simulada (sin ElevenLabs). Conecta un agente real para probar voz y tools de verdad. (Demo simulada)",
-  };
-}
-
-function DemoControls({ pushMessage }: { pushMessage: (role: MessageRole, text: string, tentative?: boolean) => void }) {
-  const [text, setText] = useState("");
-  const [thinking, setThinking] = useState(false);
-  const startedRef = useRef(false);
-
-  useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    const t = setTimeout(() => {
-      const reply = buildDemoReply("", "welcome");
-      pushMessage(reply.role, reply.text);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [pushMessage]);
-
-  const handleSend = () => {
-    const value = text.trim();
-    if (!value || thinking) return;
-    pushMessage("user", value);
-    setThinking(true);
-    setText("");
-    setTimeout(() => {
-      pushMessage("agent", "Consultando disponibilidad…", true);
-      setTimeout(() => {
-        pushMessage("agent", "Consultando disponibilidad…", true); // no-op para limpiar placeholder
-        const reply = buildDemoReply(value);
-        pushMessage(reply.role, reply.text);
-        setThinking(false);
-      }, 900);
-    }, 300);
-  };
-
-  return (
-    <div className="flex flex-col gap-2 p-3">
-      <div className="rounded-md bg-amber-500/10 px-2 py-1.5 text-[10px] leading-relaxed text-amber-200/90">
-        Modo demo: flujo simulado del patrón <code className="font-mono">Agente → webhook → FactorIA</code>. No se
-        consumo créditos ni se conecta a ElevenLabs.
-      </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleSend();
-        }}
-        className="flex gap-1.5"
-      >
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Pregunta por disponibilidad, por ejemplo: «¿hay vip para mañana?»"
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-2 text-xs text-white placeholder:text-slate-500 focus:border-amber-500 focus:outline-none"
-        />
-        <button
-          type="submit"
-          disabled={!text.trim() || thinking}
-          className="rounded-lg bg-slate-700 px-3 text-xs font-semibold transition hover:bg-slate-600 disabled:opacity-40"
-        >
-          Enviar
-        </button>
-      </form>
-    </div>
-  );
-}
-
-function SetupPanel({ title, onTryDemo }: { title: string; onTryDemo: () => void }) {
+function SetupPanel({ title, tenantId }: { title: string; tenantId?: string }) {
   return (
     <div className="fixed bottom-5 right-5 z-50 flex w-88 max-w-[calc(100vw-2.5rem)] flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/95 p-4 text-white shadow-2xl backdrop-blur-md">
       <div className="text-sm font-semibold text-slate-100">{title} — sin configurar</div>
       <ol className="list-decimal space-y-1.5 pl-5 text-xs text-slate-300">
-        <li>Obtén tu API key: ElevenLabs → Dashboard → API Keys.</li>
+        <li>Obtén tu API key del proveedor de voz: Dashboard → API Keys.</li>
         <li>
-          Crea el agente y la tool: <code className="font-mono text-emerald-400">npm run setup</code> (guarda el
-          Agent ID que imprime).
+          Crea el config del tenant en <code className="font-mono text-emerald-400">config/tenants/</code> (o con{" "}
+          <code className="font-mono text-emerald-400">npm run setup:new</code>).
         </li>
         <li>
-          Copia <code className="font-mono text-emerald-400">.env.example</code> a{" "}
-          <code className="font-mono text-emerald-400">.env.local</code> y rellena{" "}
-          <code className="font-mono">ELEVENLABS_API_KEY</code> y{" "}
-          <code className="font-mono">NEXT_PUBLIC_ELEVENLABS_AGENT_ID</code>.
+          Provisiona secret + tools + agente:{" "}
+          <code className="font-mono text-emerald-400">
+            npm run setup -- --tenant {tenantId ?? "<id>"}
+          </code>
         </li>
-        <li>Reinicia el dev server y vuelve a «Iniciar conversación».</li>
+        <li>
+          Guarda el secret generado en <code className="font-mono text-emerald-400">.env</code> (o Vercel) y reinicia el
+          server.
+        </li>
       </ol>
-      <button
-        type="button"
-        onClick={onTryDemo}
-        className="rounded-xl border border-amber-500/40 bg-amber-500/10 py-2 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20"
-      >
-        Probar demo simulada
-      </button>
     </div>
   );
 }

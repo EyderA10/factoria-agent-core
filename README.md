@@ -1,82 +1,123 @@
-# FactorIA Agent Platform — POC
+# FactorIA Agent Core
 
-Poc de la plataforma de agentes de FactorIA sobre **ElevenLabs Conversational AI** +
-**FactorIA Tool Layer** (Next.js). Valida: agente IA por **Web / WhatsApp / Teléfono**,
-integración con sistemas del cliente, widget propio y provisioning por código.
+Núcleo multi-tenant de agentes de FactorIA. Un solo repositorio sirve a varios clientes:
+cada **tenant** declara su identidad, su agente, sus tools y sus reglas de negocio en
+`config/tenants/<id>.json`, y el core se encarga del resto.
 
-> Repo sin `git init` (por decisión del usuario). Paquetes ya instalados con `npm i`.
-
+```
+Cliente/Visitante  →  Widget white-label (/widget/<tenant>)
+                          ↓
+                    Agente de voz (ElevenLabs)
+                          ↓  POST /api/tools/<tool>  (Authorization: Bearer <secret del tenant>)
+                    FactorIA Tool Layer
+                    · resuelve el tenant por hash del secret (nunca por el body)
+                    · valida el payload con el contrato Zod del tenant
+                    · ejecuta el handler (lógica genérica + settings del tenant)
+                          ↓
+                    Sistema del cliente / fuente externa   →   Supabase Postgres (logs)
+```
 ## Stack
 
-- Next.js 16 + React 19 + Tailwind v4 + Zod
-- `@elevenlabs/react` (widget real) + `@elevenlabs/elevenlabs-js` (backend/provisioning)
-- scripts con `tsx`
+- Next.js 16 (App Router) + React 19 + Tailwind v4 + Zod
+- `@elevenlabs/react` (widget) + `@elevenlabs/elevenlabs-js` (provisioning)
+- Supabase Postgres + Drizzle ORM (persistencia operacional)
+- Vitest (tests del core y de la Tool Layer)
 
 ## Estructura
 
 ```
-factoria-agent-platform-poc/
-├─ app/
-│  ├─ page.tsx                    # Landing: pasos, prueba de tool, widget
-│  ├─ widget/page.tsx             # Vista dedicada del widget
-│  ├─ api/
-│  │  ├─ tools/check-availability/  # Webhook tool (Bearer + Zod)
-│  │  ├─ elevenlabs/session/         # Signed URL server-side
-│  │  ├─ telephony/outbound-call/    # Llamada saliente (Twilio) demo
-│  │  └─ poc/test-tool/              # Prueba de tool sin exponer secreto
-├─ components/
-│  ├─ factoria-chat-widget.tsx       # Widget real + modo demo etiquetado
-│  └─ tool-test-card.tsx             # Tarjeta de prueba de la tool
-├─ lib/
-│  ├─ elevenlabs.ts                  # Cliente y sesión
-│  └─ tools/check-availability.ts    # Contrato Zod + handler (single source)
-├─ scripts/setup-agent.ts            # Provisioning tool+agente (idempotente, --dry-run)
-└─ docs/
-   ├─ architecture-update.md
-   ├─ onboarding-checklist.md
-   ├─ elevenlabs-capabilities.md
-   ├─ factoria-tool-layer.md
-   └─ bibo-park-requirements.md
+config/tenants/                # FUENTE DE verdad por tenant (Zod-validada)
+├─ mesa-y-cia.json            #   restaurante: reserve_table + check_weather
+├─ vitea.json                 #   retail: check_stock
+└─ _template.json             #   plantilla para crear tenants
+lib/
+├─ tenants/model.ts           #   modelo único de tenant (lo alimentan CLI y futuro panel)
+├─ tenants/store.ts           #   carga/valida configs
+├─ tenants/resolver.ts        #   hash del secret → tenant (aislamiento)
+├─ tools/                     #   FACTORIA TOOL LAYER
+│  ├─ types.ts                #     ToolDefinition + Zod desde el inputSchema del tenant
+│  ├─ reserve-table.ts        #     handler genérico (mesas desde settings)
+│  ├─ check-stock.ts          #     handler genérico (catálogo desde settings)
+│  ├─ check-weather.ts        #     handler genérico (fetch real a Open-Meteo)
+│  ├─ index.ts                #     executeTool() + registro de handlers
+│  └─ ai.ts                   #     registry para Vercel AI SDK (mismo contrato)
+├─ db/                        #   schema, cliente y repositorio (Drizzle)
+├─ provisioning/service.ts    #   validate / diff / provision (usado por la CLI y el panel)
+└─ elevenlabs.ts              #   cliente + signed URL server-side
+app/
+├─ api/tools/[toolName]/      #   DISPATCHER: auth → tenant → Zod → handler → persist
+├─ api/elevenlabs/session/    #   signed URL (acepta ?tenant=)
+├─ api/widget/config/         #   config pública white-label por tenant
+├─ api/webhooks/elevenlabs/   #   post-call webhook (persiste transcripción/coste)
+└─ widget/[tenant]/           #   widget por tenant (branding del cliente)
+scripts/
+├─ setup.ts                   #   CLI de provisioning (idempotente)
+└─ setup-new.ts               #   generador interactivo de un tenant
+tests/                        #   Vitest: config, contrato Zod, aislamiento, handlers
+docs/architecture-decisions.md
 ```
 
 ## Configuración
 
-Copia `.env.example` → `.env.local` y completa:
+`cp .env.example .env` y completa:
 
-| Variable | Uso | Ejemplo |
-|---|---|---|
-| `ELEVENLABS_API_KEY` | backend (agentes, signed URLs) | `sk_…` |
-| `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` | widget real | `abc123` |
-| `FACTORIA_TOOL_SECRET` | Bearer de la tool layer | `dev-secret-change-me` |
-| `NEXT_PUBLIC_FACTORIA_BASE_URL` | base de la tool layer para el navegador | `http://localhost:3000` |
-| `NEXT_PUBLIC_FACTORIA_DEMO_MODE` | `true` = widget en demo (sin credenciales) | `true` |
-| `NEXT_PUBLIC_FACTORIA_AGENT_NAME` | nombre del agente para el widget | `Aura FactorIA` |
+| Variable | Uso |
+|---|---|
+| `DATABASE_URL` | Postgres de Supabase (transaction pooler, puerto 6543) |
+| `ELEVENLABS_API_KEY` | Backend: agentes, tools, secrets, signed URLs |
+| `ELEVENLABS_WEBHOOK_SECRET` | Verificación HMAC del webhook post-call |
+| `FACTORIA_TENANT_<X>_SECRET` | Secret Bearer de cada tenant (**lo genera el provisioning**) |
+| `NEXT_PUBLIC_FACTORIA_BASE_URL` | URL pública; es la que se apunta en las webhook tools |
 
-## Runbook
+Aplica la migración (una sola vez):
 
-1. **Obtén la API key** — https://elevenlabs.io → *Profile → API Keys → Create*. (Cuenta free suficiente para POC.)
-2. **Copia el `.env`**: `cp .env.example .env.local` y pega la key.
-3. **Audita el provisioning** (no toca nada):
-   ```bash
-   npx tsx scripts/setup-agent.ts --dry-run
-   ```
-4. **Provisiona tool + agente** (idempotente: no duplica; `--update-agent` para reaplicar el prompt):
-   ```bash
-   npx tsx scripts/setup-agent.ts
-   ```
-   Te imprime el `AGENT_ID`; ponlo en `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` del `.env.local`.
-5. **Arranca la app**:
-   ```bash
-   npm run dev
-   ```
-   - Abre http://localhost:3000 → prueba la tool (tarjeta) y el widget (demos claramente etiquetadas).
-   - Sin API key, la app sigue funcionando en **modo demo** (`NEXT_PUBLIC_FACTORIA_DEMO_MODE=true`).
-6. **Prueba la tool por línea**:
-   ```bash
-   curl -X POST http://localhost:3000/api/tools/check-availability \
-     -H "Authorization: Bearer dev-secret-change-me" -H "Content-Type: application/json" \
-     -d '{"tenant_id":"bibo","user_name":"Ana","date":"2026-09-23","category":"premium"}'
-   ```
+```bash
+npm run db:migrate
+```
+
+## Crear y provisionar un tenant nuevo
+
+```bash
+# 1. Genera el config (interactivo) en config/tenants/<id>.json
+npm run setup:new
+
+# 1'. O no interactivo, con flags (útil en CI y para tests)
+npm run setup:new -- --id casa-lorena --name "Casa Lorena" \
+  --tools reserve_table,check_weather --currency cop \
+  --tagline "Un hogar con historia" --color "#B45309" --icon "🏡"
+
+# 2. Valida (Zod del modelo + handlers existentes; no toca nada)
+npm run setup -- --tenant <id> --validate
+
+# 3. Compara ElevenLabs vs config (no ejecuta cambios)
+npm run setup -- --tenant <id> --diff
+
+# 4. Provisiona: secret → webhook tools → agente → estado en DB (idempotente)
+npm run setup -- --tenant <id>
+
+# 5. Guarda el secret impreso en .env (o en Vercel → Environment Variables) y reinicia
+```
+
+El provisioning **imprime el secret una sola vez**: queda en el secret store del
+workspace de ElevenLabs (como selector, nunca en el body de la tool) y su hash SHA-256
+en la tabla `tenants`. Los secretos no se versionan.
+
+Flags útiles: `--dry-run` (plan sin llamar a la API), `--force-update` (re-aplica
+tools y prompt del agente), `--rotate-secret` (rota el secret del tenant),
+`--list-clients`.
+
+## Probar una tool por línea
+
+```bash
+curl -X POST $NEXT_PUBLIC_FACTORIA_BASE_URL/api/tools/reserve_table \
+  -H "Authorization: Bearer $FACTORIA_TENANT_MESA_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"date":"2026-10-05","party_size":4}'
+```
+
+Con el secret de otro tenant la misma tool responde `404` (ese tenant no la tiene) y
+con un secret inválido responde `401`: el aislamiento se verifica en la línea de
+comandos.
 
 ## Scripts
 
@@ -85,12 +126,35 @@ Copia `.env.example` → `.env.local` y completa:
 | `npm run dev` | servidor de desarrollo |
 | `npm run build` | build de producción |
 | `npm run typecheck` | tipos (`tsc --noEmit`) |
-| `npm run setup` | provisiona por cliente: tool (secret selector) + agente + post-call (`-- --client <id>`, `--list-clients`, `--update-tool`, `--update-agent`, `--enable-webhook`) |
+| `npm test` | suite Vitest |
+| `npm run setup -- --help` | CLI de provisioning |
+| `npm run setup:new` | genera `config/tenants/<id>.json` (interactivo o con flags) |
+| `npm run db:generate` / `db:migrate` / `db:studio` | Drizzle |
 
-## Validado y conocido
+## Ver el widget
 
-- **Estado de validación**: ver `docs/validacion-poc-estado.md` (qué se probó, cómo reproducirlo y qué depende del cliente).
-- **Validado E2E**: agente + webhook tool (auth por selector de secretos) y **post-call webhook** con evento real `post_call_transcription` verificado por HMAC.
-- **Pendiente de credenciales del cliente**: WhatsApp (Meta WABA), telefonía (Twilio/SIP).
-- La **demo del widget** simula al agente localmente; el modo real usa WebRTC vía `@elevenlabs/react` con la signed URL.
-- Ver `docs/elevenlabs-capabilities.md` para qué se administra vía API y qué requiere dashboard/terceros.
+- `/widget` → índice de tenants con su branding.
+- `/widget/mesa-y-cia`, `/widget/vitea` → widget white-label del cliente.
+- `/api/widget/config?tenant=<id>` → config pública para embeber (branding, agent id,
+  tools). Nunca incluye secretos ni reglas de negocio.
+
+## Tenants incluidos
+
+| Tenant | Vertical | Tools | Fuente de datos |
+|---|---|---|---|
+| `mesa-y-cia` | restaurante | `reserve_table`, `check_weather` | mesas desde `settings`; clima real de Open-Meteo |
+| `vitea` | retail moda | `check_stock` | catálogo desde `settings` (precios, tallas, stock) |
+
+## Notas y límites actuales
+
+- Los datos de negocio de los tenants de ejemplo viven en el config (`settings`).
+  Con un cliente real, `settings` se puebla desde su API: el handler no cambia.
+- Redis (Upstash) y Langfuse están **diseñados pero no implementados**; el punto de
+  extensión es `lib/db/repo.ts` y la tabla `events`. Ver `docs/architecture-decisions.md`.
+- WhatsApp y telefonía requieren credenciales del cliente; el core ya tiene el
+  dispatcher y la persistencia, falta el adaptador de canal.
+- El widget se entrega como página por tenant; para embeber en el sitio del cliente
+  basta un `iframe` a `/widget/<id>` o consumir `/api/widget/config`.
+- No hay agente "por defecto" global ni modo demo: el agente de cada widget se resuelve
+  en DB a partir del tenant. Si un tenant no está provisionado, el widget lo dice con
+  los pasos exactos para provisionarlo.

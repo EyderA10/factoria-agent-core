@@ -4,18 +4,30 @@ Núcleo multi-tenant de agentes de FactorIA. Un solo repositorio sirve a varios 
 cada **tenant** declara su identidad, su agente, sus tools y sus reglas de negocio en
 `config/tenants/<id>.json`, y el core se encarga del resto.
 
+```mermaid
+flowchart TD
+    VISITOR["Cliente / Visitante"]
+
+    subgraph CORE["FactorIA Agent Core · Next.js"]
+        direction TB
+        WIDGET["Widget white-label<br/>/widget/&lt;tenant&gt;"]
+        SESSION["Sesión firmada<br/>/api/elevenlabs/session"]
+        TOOLLAYER["FactorIA Tool Layer<br/>1 · tenant resuelto por hash del secret · nunca por el body<br/>2 · payload validado con el contrato Zod del tenant<br/>3 · handler genérico ejecutando los settings del tenant"]
+        DB[("Supabase Postgres · Drizzle<br/>conversaciones · mensajes · tool_calls · eventos")]
+    end
+
+    AGENT["ElevenLabs Conversational AI"]
+    CLIENTSYS["Sistema del cliente / fuente externa"]
+
+    VISITOR --> WIDGET
+    WIDGET --> SESSION
+    SESSION -- "signed URL" --> AGENT
+    AGENT -- "webhook tool · POST /api/tools/&lt;tool&gt; · Authorization: Bearer &lt;secret del tenant&gt;" --> TOOLLAYER
+    AGENT -. "post-call webhook · HMAC: transcripción · mensajes · coste" .-> DB
+    TOOLLAYER --> CLIENTSYS
+    TOOLLAYER --> DB
 ```
-Cliente/Visitante  →  Widget white-label (/widget/<tenant>)
-                          ↓
-                    Agente de voz (ElevenLabs)
-                          ↓  POST /api/tools/<tool>  (Authorization: Bearer <secret del tenant>)
-                    FactorIA Tool Layer
-                    · resuelve el tenant por hash del secret (nunca por el body)
-                    · valida el payload con el contrato Zod del tenant
-                    · ejecuta el handler (lógica genérica + settings del tenant)
-                          ↓
-                    Sistema del cliente / fuente externa   →   Supabase Postgres (logs)
-```
+
 ## Stack
 
 - Next.js 16 (App Router) + React 19 + Tailwind v4 + Zod

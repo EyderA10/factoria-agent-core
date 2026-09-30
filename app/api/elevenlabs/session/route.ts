@@ -7,18 +7,19 @@ export const dynamic = "force-dynamic";
 /**
  * Endpoint que el widget FactorIA llama antes de iniciar una conversación.
  * - Con ELEVENLABS_API_KEY → devuelve un signed URL (agente privado, sin exponer la key).
- * - Sin API key pero con agent público (o agentId en query) → devuelve el agentId.
+ * - Sin API key pero con agente provisionado → devuelve el agentId.
  * - Sin configuración → 503 con instrucciones para que el widget muestre el estado "no configurado".
  *
- * GET /api/elevenlabs/session?agentId=agent_xxx
+ * El agente se resuelve server-side desde el tenant: el endpoint no acepta agentId
+ * del cliente para que nadie pueda pedir una sesión de otro agente del workspace.
+ *
  * GET /api/elevenlabs/session?tenant=vitea   (resuelve el agente del tenant en DB)
  */
 export async function GET(req: NextRequest) {
-  const agentId = req.nextUrl.searchParams.get("agentId") ?? undefined;
   const tenantId = req.nextUrl.searchParams.get("tenant") ?? undefined;
 
   try {
-    const session = await sessionForAgent(agentId, tenantId);
+    const session = await sessionForAgent(tenantId);
     return NextResponse.json(session);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown_error";
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           error: "not_configured",
-          hint: "Pasa ?tenant=<id> o ?agentId=.... Crea el agente del tenant con `npm run setup -- --tenant <id>`.",
+          hint: "Pasa ?tenant=<id>. Crea el agente del tenant con `npm run setup -- --tenant <id>`.",
         },
         { status: 400 }
       );

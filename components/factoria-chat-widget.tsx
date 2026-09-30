@@ -20,10 +20,8 @@ interface ChatMessage {
 }
 
 interface WidgetProps {
-  /** Agent ID de ElevenLabs (opcional si el tenant ya está provisionado en DB). */
-  agentId?: string;
-  /** Tenant (id de config/tenants). El agente se resuelve en DB por tenant. */
-  tenantId?: string;
+  /** Tenant (id de config/tenants). El agente se resuelve en DB por tenant, server-side. */
+  tenantId: string;
   title?: string;
   /** White-label: color e ícono del cliente. */
   primaryColor?: string;
@@ -37,7 +35,6 @@ function normalize(text: string): string {
 }
 
 export function FactorIAChatWidget({
-  agentId,
   tenantId,
   title = "FactorIA Agent",
   primaryColor = "#4f46e5",
@@ -115,7 +112,6 @@ export function FactorIAChatWidget({
         <Header title={title} primaryColor={primaryColor} icon={icon} />
         <MessageList messages={messages} error={error} />
         <RealControls
-          agentId={agentId}
           tenantId={tenantId}
           primaryColor={primaryColor}
           pushMessage={pushMessage}
@@ -262,14 +258,12 @@ function MessageList({ messages, error }: { messages: ChatMessage[]; error: stri
 }
 
 function RealControls({
-  agentId,
   tenantId,
   primaryColor,
   pushMessage,
   onSetupNeeded,
 }: {
-  agentId?: string;
-  tenantId?: string;
+  tenantId: string;
   primaryColor: string;
   pushMessage: (role: MessageRole, text: string, tentative?: boolean) => void;
   onSetupNeeded: () => void;
@@ -298,10 +292,7 @@ function RealControls({
   const handleStart = useCallback(async () => {
     setStarting(true);
     try {
-      const query = tenantId
-        ? `tenant=${encodeURIComponent(tenantId)}`
-        : `agentId=${encodeURIComponent(agentId ?? "")}`;
-      const res = await fetch(`/api/elevenlabs/session?${query}`);
+      const res = await fetch(`/api/elevenlabs/session?tenant=${encodeURIComponent(tenantId)}`);
       const body = (await res.json().catch(() => ({}))) as {
         signedUrl?: string;
         agentId?: string;
@@ -328,7 +319,7 @@ function RealControls({
     } finally {
       setStarting(false);
     }
-  }, [agentId, tenantId, onSetupNeeded, pushMessage, startSession, userId]);
+  }, [tenantId, onSetupNeeded, pushMessage, startSession, userId]);
 
   const handleSend = useCallback(() => {
     const value = text.trim();

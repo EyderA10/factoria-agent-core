@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { loadTenantConfig } from "@/lib/tenants/store";
 import { hashSecret } from "@/lib/tenants/resolver";
-import { getElevenLabsClient, hasElevenLabsApiKey } from "@/lib/elevenlabs";
+import { getElevenLabsClient } from "@/lib/elevenlabs";
 import { toolHandlers } from "@/lib/tools";
-import { upsertTenant, upsertAgent, setTenantSecretHash, getTenantById } from "@/lib/db/repo";
+import { upsertTenant, upsertAgent, setTenantSecretHash, getTenantById, getAgentForTenant } from "@/lib/db/repo";
 import type { TenantConfig, ToolConfig } from "@/lib/tenants/model";
 
 /**
@@ -71,14 +71,39 @@ async function elevenlabsRest(method: string, path: string, body: unknown) {
   return JSON.parse(text || "{}");
 }
 
-async function findWebhookTools(client: ElevenLabsClient): Promise<{ id: string; name: string }[]> {
-  const out: { id: string; name: string }[] = [];
+type SecretLocator = { secretId?: string };
+
+function readSecretId(config: unknown): string | undefined {
+  const apiSchema = (config as { apiSchema?: { requestHeaders?: Record<string, unknown> } }).apiSchema;
+  const locator = apiSchema?.requestHeaders?.Authorization as SecretLocator | string | undefined;
+  return typeof locator === "object" && typeof locator?.secretId === "string" ? locator.secretId : undefined;
+}
+
+/**
+ * Nombre del recurso webhook en el workspace de ElevenLabs, namespaced por tenant.
+ *
+ * El workspace de ElevenLabs es compartido por todos los clientes, así que un nombre
+ * pelado (`reserve_table`) haría que dos restaurantes se pisaran la tool del primero:
+ * el `find` por nombre devolvería la tool ajena, que ya lleva el `secret_id` del otro
+ * tenant en su header Authorization, y el dispatcher resolvería la llamada como el
+ * tenant equivocado. Namespaciar hace la búsqueda inequívoca y el `secret_id` se
+ * usa como prueba de titularidad (defensa en profundidad).
+ */
+function buildWebhookToolName(tenantId: string, toolName: string): string {
+  return `${tenantId.replace(/[^a-zA-Z0-9_-]/g, "_")}__${toolName}`;
+}
+
+async function findWebhookTools(client: ElevenLabsClient): Promise<{ id: string; name: string; secretId?: string }[]> {
+  const out: { id: string; name: string; secretId?: string }[] = [];
   let cursor: string | undefined;
   do {
     const res = await client.conversationalAi.tools.list({ pageSize: 100, cursor, types: "webhook" });
     for (const t of res.tools) {
-      const name = (t.toolConfig as { name?: string }).name ?? "";
-      out.push({ id: t.id, name });
+      out.push({
+        id: t.id,
+        name: (t.toolConfig as { name?: string }).name ?? "",
+        secretId: readSecretId(t.toolConfig),
+      });
     }
     cursor = res.nextCursor;
     if (!res.hasMore) break;
@@ -86,16 +111,15 @@ async function findWebhookTools(client: ElevenLabsClient): Promise<{ id: string;
   return out;
 }
 
-async function findAgents(client: ElevenLabsClient): Promise<{ id: string; name: string }[]> {
-  const out: { id: string; name: string }[] = [];
-  let cursor: string | undefined;
-  do {
-    const res = await client.conversationalAi.agents.list({ pageSize: 100, cursor });
-    for (const a of res.agents) out.push({ id: a.agentId, name: a.name });
-    cursor = res.nextCursor;
-    if (!res.hasMore) break;
-  } while (cursor);
-  return out;
+/** Tool del tenant: el nombre namespaced Y con su propio secret. Nunca la de otro. */
+function findOwnTool(
+  tools: { id: string; name: string; secretId?: string }[],
+  tenantId: string,
+  toolName: string,
+  secretId: string | undefined
+): { id: string; name: string } | undefined {
+  const expectedName = buildWebhookToolName(tenantId, toolName);
+  return tools.find((t) => t.name === expectedName && (!secretId || t.secretId === secretId));
 }
 
 /**
@@ -191,7 +215,6 @@ export function validateTenant(tenantId: string): { ok: boolean; errors: string[
       errors.push(`La tool "${tool.name}" no define properties en inputSchema.`);
     }
   }
-  if (!hasElevenLabsApiKey()) errors.push("ELEVENLABS_API_KEY no está definida (env).");
 
   return { ok: errors.length === 0, errors };
 }
@@ -209,24 +232,25 @@ export async function diffTenant(tenantId: string): Promise<DiffResult> {
 
   // Tools
   const existingTools = await findWebhookTools(client);
+  const ownSecretId = existingSecrets.secrets.find((s) => s.name === secretName)?.secretId;
   for (const tool of tenant.tools) {
-    const found = existingTools.find((t) => t.name === tool.name);
+    const wireName = buildWebhookToolName(tenantId, tool.name);
+    const found = findOwnTool(existingTools, tenantId, tool.name, ownSecretId);
     plan.push({
       action: found ? "reuse" : "create",
       kind: "tool",
-      name: tool.name,
+      name: wireName,
       note: found ? `id ${found.id}` : `${resolveBaseUrl()}/api/tools/${tool.name}`,
     });
   }
 
   // Agent
-  const existingAgents = await findAgents(client);
-  const agentFound = existingAgents.find((a) => a.name === tenant.agent.name);
+  const agentFound = await getAgentForTenant(tenantId);
   plan.push({
     action: agentFound ? "reuse" : "create",
     kind: "agent",
     name: tenant.agent.name,
-    note: agentFound ? `id ${agentFound.id}` : "crea con prompt + tools del tenant",
+    note: agentFound ? `id ${agentFound.elevenlabsAgentId}` : "crea con prompt + tools del tenant",
   });
 
   return { tenantId, plan, secret: { name: secretName, existing: secretExists } };
@@ -238,7 +262,10 @@ export async function provisionTenant(
 ): Promise<ProvisionResult> {
   const tenant = loadTenantConfig(tenantId);
   const dryRun = Boolean(opts.dryRun);
-  const client = getElevenLabsClient();
+  // Perezoso a propósito: en dry-run no debe hacer falta ELEVENLABS_API_KEY porque no
+  // se va a llamar a ElevenLabs. Construir el cliente aquí lo exigía igualmente.
+  let client: ElevenLabsClient | undefined;
+  const el = () => (client ??= getElevenLabsClient());
   const baseUrl = resolveBaseUrl();
 
   const secretName = `FACTORIA_${tenant.slug.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase()}_TOOL`;
@@ -256,7 +283,7 @@ export async function provisionTenant(
   } else {
     const tenantRow = await getTenantById(tenantId);
     const alreadySynced = !opts.rotateSecret && tenantRow?.secretHash === secretHash;
-    const ensured = await ensureWorkspaceSecret(client, secretName, `Bearer ${secret}`, alreadySynced);
+    const ensured = await ensureWorkspaceSecret(el(), secretName, `Bearer ${secret}`, alreadySynced);
     secretId = ensured.secretId;
     secretChanged = ensured.created || ensured.updated;
     plan.push(
@@ -270,16 +297,17 @@ export async function provisionTenant(
 
   // --- Tools webhook (una por tool del tenant) ---
   const toolIds: string[] = [];
-  const existingTools = dryRun ? [] : await findWebhookTools(client);
+  const existingTools = dryRun ? [] : await findWebhookTools(el());
   for (const tool of tenant.tools) {
     const url = `${baseUrl}/api/tools/${tool.name}`;
-    const existing = dryRun ? undefined : existingTools.find((t) => t.name === tool.name);
+    const wireName = buildWebhookToolName(tenantId, tool.name);
+    const existing = dryRun ? undefined : findOwnTool(existingTools, tenantId, tool.name, secretId);
 
     if (existing && opts.forceUpdateTool) {
       await elevenlabsRest("PATCH", `/v1/convai/tools/${existing.id}`, {
         tool_config: {
           type: "webhook",
-          name: tool.name,
+          name: wireName,
           description: tool.description,
           api_schema: {
             url,
@@ -293,42 +321,45 @@ export async function provisionTenant(
         },
       });
       toolIds.push(existing.id);
-      plan.push({ action: "update", kind: "tool", name: tool.name, note: `id ${existing.id}` });
+      plan.push({ action: "update", kind: "tool", name: wireName, note: `id ${existing.id}` });
     } else if (existing) {
       toolIds.push(existing.id);
-      plan.push({ action: "reuse", kind: "tool", name: tool.name, note: `id ${existing.id}` });
+      plan.push({ action: "reuse", kind: "tool", name: wireName, note: `id ${existing.id}` });
     } else {
       if (dryRun) {
-        toolIds.push(`(nuevo: ${tool.name})`);
-        plan.push({ action: "create", kind: "tool", name: tool.name, note: url });
+        toolIds.push(`(nuevo: ${wireName})`);
+        plan.push({ action: "create", kind: "tool", name: wireName, note: url });
         continue;
       }
-      const created = await client.conversationalAi.tools.create({
+      const created = await el().conversationalAi.tools.create({
         toolConfig: {
           type: "webhook",
-          name: tool.name,
+          name: wireName,
           description: tool.description,
           apiSchema: webhookToolApiSchema(tool, url, secretId),
         },
       });
       toolIds.push(created.id);
-      plan.push({ action: "create", kind: "tool", name: tool.name, note: `id ${created.id}` });
+      plan.push({ action: "create", kind: "tool", name: wireName, note: `id ${created.id}` });
     }
   }
 
   // --- Agente (REST: los modelos TTS v2.5 no están en el enum del SDK) ---
   let agentId = "";
   const agentName = tenant.agent.name;
-  const existingAgents = dryRun ? [] : await findAgents(client);
-  const existingAgent = dryRun ? undefined : existingAgents.find((a) => a.name === agentName);
+  // La fila del tenant en DB es la fuente de verdad del id: buscar el agente por nombre
+  // haría que dos tenants homónimos compartieran agente (y con él el systemPrompt, el
+  // firstMessage y los tool_ids del primero).
+  const agentRow = await getAgentForTenant(tenantId);
+  const existingAgentId = agentRow?.elevenlabsAgentId ?? undefined;
   const conversationConfig = buildRestConfig(tenant, toolIds);
 
-  if (existingAgent && opts.forceUpdateAgent) {
-    await elevenlabsRest("PATCH", `/v1/convai/agents/${existingAgent.id}`, { conversation_config: conversationConfig });
-    agentId = existingAgent.id;
+  if (existingAgentId && opts.forceUpdateAgent) {
+    await elevenlabsRest("PATCH", `/v1/convai/agents/${existingAgentId}`, { conversation_config: conversationConfig });
+    agentId = existingAgentId;
     plan.push({ action: "update", kind: "agent", name: agentName, note: `id ${agentId}` });
-  } else if (existingAgent) {
-    agentId = existingAgent.id;
+  } else if (existingAgentId) {
+    agentId = existingAgentId;
     plan.push({ action: "reuse", kind: "agent", name: agentName, note: `id ${agentId}` });
   } else if (dryRun) {
     agentId = "(nuevo agente)";

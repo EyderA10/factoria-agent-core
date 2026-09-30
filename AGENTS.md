@@ -26,7 +26,7 @@ widget por cliente.
 npm run dev              # next dev
 npm run build            # next build
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest run  (3 archivos · 32 tests)
+npm test                 # vitest run  (5 archivos · 48 tests)
 
 npm run setup:new        # genera config/tenants/<id>.json (interactivo o con flags)
 npm run setup -- --tenant <id> --validate   # valida config; no toca nada
@@ -39,6 +39,8 @@ npm run db:studio        # GUI de Drizzle
 ```
 
 Flags de provisioning: `--dry-run`, `--force-update`, `--rotate-secret`, `--list-clients`.
+`--dry-run` no necesita `ELEVENLABS_API_KEY` (ni hace llamadas); sí necesita
+`DATABASE_URL`, porque el servicio importa el repositorio.
 
 ### Gotcha del entorno
 
@@ -58,6 +60,13 @@ Estos son el contrato del core. Si tocas algo aquí, es un cambio de arquitectur
    secret del header `Authorization` y se compara (timing-safe) contra
    `tenants.secretHash`. Un `tenant_id` que envíe el LLM **nunca** se usa para
    autorizar. Es el único aislamiento entre clientes.
+1b. **El aislamiento llega hasta los recursos del workspace de ElevenLabs.** El
+   workspace es compartido por todos los clientes, así que nada se reutiliza por
+   nombre pelado: las tools se nombran `<tenantId>__<tool>` (`buildWebhookToolName`),
+   se reusan solo si además su `secret_id` del header es el del tenant
+   (`findOwnTool`), y el agente se resuelve por `agents.elevenlabsAgentId` en DB, no
+   por nombre. La URL del webhook sigue siendo `/api/tools/<tool>` pelada: el
+   dispatcher enruta por ruta.
 2. **El payload se valida con el contrato Zod derivado del `inputSchema` del tenant**
    *antes* de ejecutar el handler.
 3. **Los handlers son genéricos y leen los datos de negocio de `tenant.settings`.**
@@ -97,6 +106,10 @@ npm run setup -- --tenant <id>                             # 4. provisiona
   resolución de config de tools.
 - En el widget, los ids de mensajes deben salir de `nextIdRef` (por instancia), nunca de
   un contador a nivel de módulo: genera claves React duplicadas.
+- **Reprovisionar crea tools nuevas**: al namespacear, el provisioning no encuentra
+  las tools viejas y crea otras con id nuevo. Los agentes siguen apuntando a los ids
+  anteriores hasta que corres `npm run setup -- --tenant <id> --force-update`, y las
+  tools viejas quedan huérfanas en el workspace hasta que las borres a mano.
 - **Diagramas de flujo en Markdown = Mermaid**, no ASCII. En las etiquetas de Mermaid
   escapa `<` y `>` como `&lt;` y `&gt;` (si no, Mermaid los toma por etiquetas HTML) y
   evita `<br/>` en las etiquetas de arista.

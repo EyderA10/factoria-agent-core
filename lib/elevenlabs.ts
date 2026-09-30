@@ -36,9 +36,15 @@ export async function resolveAgentIdForTenant(tenantId?: string | null): Promise
   return agent?.elevenlabsAgentId ?? undefined;
 }
 
-/** Genera un signed URL (agentes privados) o devuelve el agentId (agentes públicos). */
-export async function sessionForAgent(requestedAgentId?: string, tenantId?: string | null): Promise<SessionForAgent> {
-  const agentId = requestedAgentId ?? (await resolveAgentIdForTenant(tenantId));
+/**
+ * Genera un signed URL (agentes privados) o devuelve el agentId (agentes públicos).
+ *
+ * El agente se resuelve SIEMPRE a partir del tenant, en el servidor: el endpoint no
+ * acepta un agentId del cliente, para que el navegador no pueda pedir una sesión de
+ * cualquier agente del workspace saltándose el aislamiento por tenant.
+ */
+export async function sessionForAgent(tenantId?: string | null): Promise<SessionForAgent> {
+  const agentId = await resolveAgentIdForTenant(tenantId);
   if (!agentId) {
     throw new Error("agent_id_required");
   }

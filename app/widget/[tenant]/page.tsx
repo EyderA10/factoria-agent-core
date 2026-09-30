@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { FactorIAChatWidget } from "@/components/factoria-chat-widget";
 import { listTenantIds, loadTenantConfig } from "@/lib/tenants/store";
-import { resolveAgentIdForTenant } from "@/lib/elevenlabs";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +19,6 @@ export default async function TenantWidgetPage({ params }: { params: Promise<{ t
   const tenant = loadTenantConfig(tenantId);
   if (!tenant.enabled) notFound();
 
-  const agentId = await resolveAgentIdForTenant(tenant.id);
   const { title, tagline, primaryColor, icon } = tenant.branding;
 
   return (
@@ -39,7 +37,6 @@ export default async function TenantWidgetPage({ params }: { params: Promise<{ t
 
       <FactorIAChatWidget
         tenantId={tenant.id}
-        agentId={agentId ?? undefined}
         title={title}
         primaryColor={primaryColor}
         icon={icon}

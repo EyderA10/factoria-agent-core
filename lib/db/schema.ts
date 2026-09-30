@@ -114,7 +114,7 @@ export const toolCalls = pgTable(
     errorJson: jsonb("error_json"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("tool_calls_tenant_idx").on(t.tenantId, t.toolName)]
+  (t) => [index("tool_calls_tenant_idx").on(t.tenantId, t.toolName)]
 );
 
 export const events = pgTable(
@@ -129,7 +129,7 @@ export const events = pgTable(
     payloadJson: jsonb("payload_json"),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("events_tenant_type_idx").on(t.tenantId, t.eventType)]
+  (t) => [index("events_tenant_type_idx").on(t.tenantId, t.eventType)]
 );
 
 export type TenantRow = typeof tenants.$inferSelect;

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { provisionTenant, validateTenant } from "@/lib/provisioning/service";
 
 /**
  * Estado compartido del "workspace de ElevenLabs" simulado.
@@ -163,8 +164,6 @@ const TENANTS: Record<string, any> = {
     tools: [reserveTable([{ id: "p9", seats: 8 }])],
   },
 };
-
-import { provisionTenant, validateTenant } from "@/lib/provisioning/service";
 
 beforeEach(() => {
   h.tools = [];

@@ -39,9 +39,7 @@ export async function resolveAgentIdForTenant(tenantId?: string | null): Promise
 /**
  * Genera un signed URL (agentes privados) o devuelve el agentId (agentes públicos).
  *
- * El agente se resuelve SIEMPRE a partir del tenant, en el servidor: el endpoint no
- * acepta un agentId del cliente, para que el navegador no pueda pedir una sesión de
- * cualquier agente del workspace saltándose el aislamiento por tenant.
+ * El agente se resuelve SIEMPRE a partir del tenant, en el servidor.
  */
 export async function sessionForAgent(tenantId?: string | null): Promise<SessionForAgent> {
   const agentId = await resolveAgentIdForTenant(tenantId);

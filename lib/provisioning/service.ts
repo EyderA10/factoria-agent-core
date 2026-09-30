@@ -81,13 +81,6 @@ function readSecretId(config: unknown): string | undefined {
 
 /**
  * Nombre del recurso webhook en el workspace de ElevenLabs, namespaced por tenant.
- *
- * El workspace de ElevenLabs es compartido por todos los clientes, así que un nombre
- * pelado (`reserve_table`) haría que dos restaurantes se pisaran la tool del primero:
- * el `find` por nombre devolvería la tool ajena, que ya lleva el `secret_id` del otro
- * tenant en su header Authorization, y el dispatcher resolvería la llamada como el
- * tenant equivocado. Namespaciar hace la búsqueda inequívoca y el `secret_id` se
- * usa como prueba de titularidad (defensa en profundidad).
  */
 function buildWebhookToolName(tenantId: string, toolName: string): string {
   return `${tenantId.replace(/[^a-zA-Z0-9_-]/g, "_")}__${toolName}`;
@@ -124,12 +117,6 @@ function findOwnTool(
 
 /**
  * Garantiza que el secret store del workspace tenga el valor del tenant.
- *
- * El valor de un secret de ElevenLabs no es legible por API, así que el hash guardado
- * en la tabla `tenants` es lo que dice si el store está sincronizado: si coincide, no
- * se toca nada (y el secret no se vuelve a imprimir); si no, se actualiza el selector
- * y se re-sincroniza el hash. Sin esto, rotar el secret dejaría al agente con el
- * valor viejo y el dispatcher le respondería 401.
  */
 async function ensureWorkspaceSecret(
   client: ElevenLabsClient,
@@ -262,7 +249,7 @@ export async function provisionTenant(
 ): Promise<ProvisionResult> {
   const tenant = loadTenantConfig(tenantId);
   const dryRun = Boolean(opts.dryRun);
-  // Perezoso a propósito: en dry-run no debe hacer falta ELEVENLABS_API_KEY porque no
+  // en dry-run no debe hacer falta ELEVENLABS_API_KEY porque no
   // se va a llamar a ElevenLabs. Construir el cliente aquí lo exigía igualmente.
   let client: ElevenLabsClient | undefined;
   const el = () => (client ??= getElevenLabsClient());

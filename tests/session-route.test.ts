@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { NextRequest } from "next/server";
+import { GET } from "@/app/api/elevenlabs/session/route";
 
 const seen: { tenantId?: string | null } = {};
 
@@ -8,9 +10,6 @@ vi.mock("@/lib/elevenlabs", () => ({
     throw new Error("agent_id_required");
   },
 }));
-
-import { NextRequest } from "next/server";
-import { GET } from "@/app/api/elevenlabs/session/route";
 
 function req(query: string) {
   return new NextRequest(`http://localhost/api/elevenlabs/session${query}`);

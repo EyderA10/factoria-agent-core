@@ -1,10 +1,10 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   createConversation,
   getAgentByElevenlabsId,
   getConversationByConvId,
-  insertEvent,
+  insertEventOnce,
   insertMessages,
   updateConversation,
 } from "@/lib/db/repo";
@@ -93,6 +93,10 @@ export async function POST(req: NextRequest) {
   const type = typeof event.type === "string" ? event.type : "unknown";
   const data = (event.data ?? {}) as Record<string, unknown>;
   const metadata = (event.metadata ?? {}) as Record<string, unknown>;
+  const eventTimestamp =
+    typeof event.event_timestamp === "number" || typeof event.event_timestamp === "string"
+      ? String(event.event_timestamp)
+      : null;
   const convId =
     (typeof event.conversation_id === "string" && event.conversation_id) ||
     (typeof data.conversation_id === "string" ? data.conversation_id : undefined);
@@ -104,6 +108,15 @@ export async function POST(req: NextRequest) {
   try {
     // Aislamiento: el tenant sale del agente (DB), nunca del body.
     const tenantId = await resolveTenantId({ agentId, convId });
+
+    // Idempotencia: se registra el evento ANTES de tocar nada. Si la clave ya existe,
+    // ElevenLabs reenvió el mismo evento y no hay que duplicar transcripción ni coste.
+    const claimed = await claimEvent({ tenantId, convId, agentId, type, eventTimestamp, payload: event });
+    if (!claimed.inserted) {
+      console.log(`[ElevenLabs-inbound] duplicado ignorado tenant=${tenantId ?? "-"} type=${type} conv=${convId ?? "-"}`);
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
+
     const existing = convId ? await getConversationByConvId(convId) : null;
 
     switch (type) {
@@ -117,7 +130,6 @@ export async function POST(req: NextRequest) {
             userId,
             status: "initiated",
           });
-          await recordEvent({ tenantId, convId, agentId, type, payload: event });
           console.log(`[ElevenLabs-inbound] initiated tenant=${tenantId} conv=${convId} agent=${agentId ?? "-"} row=${created[0]?.id ?? "exists"}`);
         } else {
           console.warn(`[ElevenLabs-inbound] initiated sin tenant/conv resoluble (agent=${agentId ?? "-"}, conv=${convId ?? "-"})`);
@@ -129,7 +141,6 @@ export async function POST(req: NextRequest) {
       case "agent_tool_response_full_payload": {
         const toolName = (event.tool_name as string) ?? data.tool_name ?? null;
         const args = event.tool_call_args ?? data.tool_call_args ?? null;
-        await recordEvent({ tenantId, convId, agentId, type, payload: event });
         console.log(
           `[ElevenLabs-inbound] tool_response tenant=${tenantId ?? "-"} conv=${convId ?? "-"} tool=${toolName ?? "-"} payload=${JSON.stringify(args ?? event).slice(0, 400)}`
         );
@@ -162,7 +173,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        await recordEvent({ tenantId, convId, agentId, type, payload: event });
         console.log(
           `[ElevenLabs-inbound] post_call tenant=${tenantId ?? "-"} conv=${convId ?? "-"} status=${(data.status as string) ?? "-"} lines=${transcript.length} cost=${JSON.stringify(cost ?? null)} user="${firstUser.slice(0, 120)}"`
         );
@@ -179,7 +189,6 @@ export async function POST(req: NextRequest) {
             costUsd: cost?.total_cost_usd != null ? String(cost.total_cost_usd) : null,
           });
         }
-        await recordEvent({ tenantId, convId, agentId, type, payload: event });
         console.log(
           `[ElevenLabs-inbound] conversation_ended tenant=${tenantId ?? "-"} conv=${convId ?? "-"} cost=${JSON.stringify(cost ?? null)}`
         );
@@ -187,7 +196,6 @@ export async function POST(req: NextRequest) {
       }
 
       default: {
-        await recordEvent({ tenantId, convId, agentId, type, payload: event });
         console.log(`[ElevenLabs-inbound] ${type} tenant=${tenantId ?? "-"} conv=${convId ?? "-"}`);
       }
     }
@@ -228,18 +236,39 @@ async function ensureConversationRow(params: {
   return created[0]?.id ?? (await getConversationByConvId(params.convId))?.id ?? 0;
 }
 
-async function recordEvent(params: {
+/**
+ * Registra el evento con su clave de idempotencia.
+ *
+ * ElevenLabs no envía un id de evento, así que la huella se deriva de los tres campos
+ * que identifican una entrega concreta: tipo, conversación y timestamp del evento.
+ * Dos entregas del mismo evento producen la misma huella; eventos distintos de la
+ * misma conversación (inicio, tool response, fin) no colisionan porque cambia el tipo
+ * o el timestamp.
+ *
+ * Si falta el timestamp no hay forma de distinguir dos entregas, así que no se
+ * deduplica: es preferible arriesgar un duplicado antes que descartar un evento real.
+ */
+async function claimEvent(params: {
   tenantId: string | null;
-  convId?: string;
-  agentId?: string;
+  convId?: string | null;
+  agentId?: string | null;
   type: string;
+  eventTimestamp: string | null;
   payload: Record<string, unknown>;
-}) {
-  await insertEvent({
+}): Promise<{ inserted: boolean; id?: number }> {
+  const dedupeKey =
+    params.eventTimestamp !== null
+      ? createHash("sha256")
+          .update([params.type, params.convId ?? "-", params.eventTimestamp].join("|"))
+          .digest("hex")
+      : null;
+
+  return insertEventOnce({
     tenantId: params.tenantId,
     conversationId: params.convId ?? null,
     agentId: params.agentId ?? null,
     eventType: params.type,
+    dedupeKey,
     payloadJson: params.payload,
   });
 }

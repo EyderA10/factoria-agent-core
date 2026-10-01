@@ -25,6 +25,15 @@ export interface SessionForAgent {
 }
 
 /**
+ * El SDK lanza `ElevenLabsError` con `body.detail.message`. Se extrae ese mensaje para
+ * devolverlo al cliente (es lo que le dice qué arreglar); si no viene, se usa `fallback`.
+ */
+export function elevenLabsErrorMessage(error: unknown, fallback: string): string {
+  const detail = (error as { body?: { detail?: { message?: string } } } | null)?.body?.detail;
+  return typeof detail?.message === "string" ? detail.message : fallback;
+}
+
+/**
  * Resuelve el Agent ID de un tenant: el materializado en DB (provisioning) es la
  * ÚNICA fuente de verdad. Sin tenant provisionado no hay agente — no hay fallback
  * global: un agente "por defecto" escondería fallos de provisioning.

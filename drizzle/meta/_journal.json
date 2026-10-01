@@ -36,6 +36,13 @@
       "when": 1790783676516,
       "tag": "0004_fix_non_unique_tool_and_event_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790869401316,
+      "tag": "0005_rate_limit_and_event_dedupe",
+      "breakpoints": true
     }
   ]
 }

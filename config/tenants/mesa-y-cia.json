@@ -19,7 +19,8 @@
     "language": "es",
     "timezone": "America/Bogota",
     "ttsModel": "eleven_flash_v2_5",
-    "llm": "gemini-2.5-flash"
+    "llm": "gemini-2.5-flash",
+  "allowedOrigins": []
   },
   "tools": [
     {

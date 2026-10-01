@@ -72,7 +72,7 @@
 | Pregunta | Respuesta |
 |---|---|
 | ¿Tienen un número de WhatsApp Business activo? | ☐ Sí ☐ No |
-| Número WABA / WhatsApp Business | |
+| Número de WhatsApp Business | |
 | ¿Otro número disponible (sin WhatsApp) por si se requiere reconectar? | |
 | Plantillas aprobadas para mensajes proactivos (promociones, recordatorios) | |
 
@@ -81,7 +81,7 @@
 | Pregunta | Respuesta |
 |---|---|
 | ¿Número(s) actual(es)? | |
-| ¿Proveedor telefónico actual (Claro, Movistar, Avaya, Asterisk…)? | |
+| ¿Proveedor telefónico actual? | |
 | ¿Buscan portabilidad / número nuevo? | |
 | ¿Llamadas entrantes, salientes o ambas? | |
 | ¿Transferencia a humano en una extensión / número interno? | |
@@ -108,9 +108,9 @@
 
 ### Componentes (referencia)
 
-1. **Agente IA (ElevenLabs)** — STT, LLM con instrucciones, TTS y canales. Alojado: no hay desplegables propios.
+1. **Agente IA** — escucha, diálogo con instrucciones y voz. Alojado por FactorIA: no hay despliegues propios.
 2. **FactorIA Tool Layer** — endpoints de integración con los sistemas del cliente (ver checklist §4).
 3. **Widget Web** — diálogo en la web corporativa (ver §6).
-4. **WhatsApp Business (Meta WABA)** — canal de mensajería (ver §7).
-5. **Telefonía (Twilio)** — canal de voz (ver §8).
+4. **Mensajería (WhatsApp Business)** — canal de mensajería (ver §7).
+5. **Telefonía** — canal de voz (ver §8).
 6. **Voz del agente** — selección de voz y aviso de grabación (ver §9, §5).

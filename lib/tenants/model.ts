@@ -56,10 +56,37 @@ export const tenantConfigSchema = z.object({
     ttsModel: z.string().default("eleven_flash_v2_5"),
     llm: z.string().default("gemini-2.5-flash"),
   }),
+  /**
+   * Canal telefónico. Opcional: si no está, el tenant no tiene llamadas salientes
+   * y `/api/telephony/outbound-call` responde 503 para él.
+   *
+   * `agentPhoneNumberId` es el id del número importado en ElevenLabs (p. ej. Twilio),
+   * NO el número en texto. Se resuelve server-side desde aquí para que el consumidor
+   * no pueda elegir de qué número salimos. El import del número lo hace ElevenLabs
+   * por dashboard; el core solo lo referencia.
+   */
+  telephony: z
+    .object({
+      agentPhoneNumberId: z.string().min(1),
+    })
+    .optional(),
+  /**
+   * Origins permitidos para embeber el widget (esquema + host, sin path). Vacío o
+   * ausente = no se restringe el origen, pensado para desarrollo.
+   */
+  allowedOrigins: z.array(z.string().min(1)).default([]),
   tools: z.array(toolConfigSchema).min(1),
 });
+
+/** Origin permitido de un tenant. Vacío = cualquier origen (solo desarrollo). */
+export function isOriginAllowed(allowedOrigins: string[], origin: string | null): boolean {
+  if (allowedOrigins.length === 0) return true;
+  if (!origin) return false;
+  return allowedOrigins.some((allowed) => allowed.trim().toLowerCase() === origin.trim().toLowerCase());
+}
 
 export type ToolProp = z.infer<typeof toolPropSchema>;
 export type ToolConfig = z.infer<typeof toolConfigSchema>;
 export type TenantConfig = z.infer<typeof tenantConfigSchema>;
 export type Branding = TenantConfig["branding"];
+export type TenantTelephony = NonNullable<TenantConfig["telephony"]>;

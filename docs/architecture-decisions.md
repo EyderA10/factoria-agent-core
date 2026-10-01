@@ -67,6 +67,13 @@ crudos del webhook con `payload_json`.
 shape del evento ya está definido, así que activarlos después es un insert, no un
 refactor.
 
+**Actualización (rate limiting).** El primer consumidor de Redis sería el rate limiting
+de los endpoints públicos, pero se resolvió sobre Postgres: la tabla
+`rate_limit_counters` con *upsert* atómico y la interfaz `RateLimiter`
+(`lib/ratelimit/limiter.ts`) ya dan el comportamiento requerido a la escala actual. Si
+el volumen o la latencia obligan a moverlo, `lib/ratelimit/postgres.ts` se sustituye
+por un adaptador y ninguna ruta cambia.
+
 ## 6. Integración externa real: Open-Meteo (sin API key)
 
 **Decisión.** `check_weather` consulta Open-Meteo (forecast diario, sin credenciales).
@@ -117,3 +124,16 @@ y el log de una tool debe poder mostrar N llamadas por tenant.
 únicos). Si se declara un id con `serial()` y luego se pasa a `integer` nullable,
 hay que añadir explícitamente `ALTER COLUMN ... DROP DEFAULT`: `drizzle-kit generate`
 no lo detecta.
+
+## 9. Idempotencia del webhook post-call por clave derivada
+
+**Decisión.** `events.dedupe_key` es un SHA-256 de `type|conversation_id|event_timestamp`
+y tiene índice único. El evento se registra **antes** de procesar el payload; un
+`ON CONFLICT DO NOTHING` que no inserta significa reintento, y se responde `200` sin
+volver a escribir mensajes.
+
+**Por qué.** ElevenLabs reintenta el post-call si el endpoint no responde a tiempo, y el
+payload real no trae un `event_id` propio. La clave sale de los tres campos que sí
+identifican un evento único. `dedupe_key = NULL` desactiva la deduplicación para eventos
+sin timestamp, y en SQL los `NULL` no colisionan en un índice único, así que los
+eventos históricos quedan intactos.

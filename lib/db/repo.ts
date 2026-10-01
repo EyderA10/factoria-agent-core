@@ -205,6 +205,7 @@ export async function insertEvent(params: {
   agentId?: string | null;
   channel?: string | null;
   eventType: string;
+  dedupeKey?: string | null;
   payloadJson: unknown;
 }) {
   return db.insert(events).values({
@@ -213,8 +214,46 @@ export async function insertEvent(params: {
     agentId: params.agentId,
     channel: params.channel,
     eventType: params.eventType,
+    dedupeKey: params.dedupeKey ?? null,
     payloadJson: params.payloadJson,
   }).returning();
+}
+
+/**
+ * Inserta el evento con clave de idempotencia y devuelve `false` si ya existía.
+ *
+ * El webhook post-call registra el evento ANTES de tocar conversaciones o mensajes.
+ * Si el insert colisiona por `dedupe_key`, ElevenLabs reenvió el mismo evento: el
+ * caller aborta y devuelve 200 sin duplicar nada. Por eso el dedupe protege la
+ * transcripción completa y no solo la fila de `events`.
+ *
+ * `dedupeKey` nulo = sin deduplicar (inserta siempre, `returning` con una fila).
+ */
+export async function insertEventOnce(params: {
+  tenantId?: string | null;
+  conversationId?: string | null;
+  agentId?: string | null;
+  channel?: string | null;
+  eventType: string;
+  dedupeKey: string | null;
+  payloadJson: unknown;
+}): Promise<{ inserted: boolean; id?: number }> {
+  const inserted = await db
+    .insert(events)
+    .values({
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      agentId: params.agentId,
+      channel: params.channel,
+      eventType: params.eventType,
+      dedupeKey: params.dedupeKey,
+      payloadJson: params.payloadJson,
+    })
+    .onConflictDoNothing({ target: events.dedupeKey })
+    .returning({ id: events.id });
+
+  const row = inserted[0];
+  return row ? { inserted: true, id: row.id } : { inserted: false };
 }
 
 // ---- lecturas scoped por tenant (entregable: consultar conversaciones/logs) ----

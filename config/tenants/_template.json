@@ -21,6 +21,7 @@
     "ttsModel": "eleven_flash_v2_5",
     "llm": "gemini-2.5-flash"
   },
+  "allowedOrigins": [],
   "tools": [
     {
       "name": "mi_tool",

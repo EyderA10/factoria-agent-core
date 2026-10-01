@@ -56,17 +56,24 @@ lib/
 ├─ db/                        #   schema, cliente y repositorio (Drizzle)
 ├─ provisioning/service.ts    #   validate / diff / provision (usado por la CLI y el panel)
 └─ elevenlabs.ts              #   cliente + signed URL server-side
+├─ ratelimit/                 #   RateLimiter (port) + adaptador Postgres
+├─ ratelimit/limiter.ts       #     interfaz + reglas por endpoint
+├─ ratelimit/postgres.ts      #     upsert atómico, fail-open, IP de x-forwarded-for
 app/
 ├─ api/tools/[toolName]/      #   DISPATCHER: auth → tenant → Zod → handler → persist
-├─ api/elevenlabs/session/    #   signed URL (acepta ?tenant=)
-├─ api/widget/config/         #   config pública white-label por tenant
-├─ api/webhooks/elevenlabs/   #   post-call webhook (persiste transcripción/coste)
+├─ api/elevenlabs/session/    #   signed URL (exige ?tenant=; origen y cuota)
+├─ api/telephony/outbound-call/  #  llamada saliente (auth por secret del tenant)
+├─ api/widget/config/         #   config pública white-label por tenant (sin agentId)
+├─ api/webhooks/elevenlabs/   #   post-call webhook (HMAC + idempotente)
 └─ widget/[tenant]/           #   widget por tenant (branding del cliente)
 scripts/
 ├─ setup.ts                   #   CLI de provisioning (idempotente)
 └─ setup-new.ts               #   generador interactivo de un tenant
-tests/                        #   Vitest: config, contrato Zod, aislamiento, handlers
-docs/architecture-decisions.md
+tests/                        #   Vitest: config, contrato Zod, aislamiento, handlers, rutas
+docs/
+├─ architecture-decisions.md  #   por qué se decidió cada cosa
+├─ runbook-interno.md         #   operación diaria, límites y troubleshooting
+└─ onboarding-checklist.md    #   entregable para el cliente
 ```
 
 ## Configuración
@@ -143,12 +150,16 @@ comandos.
 | `npm run setup:new` | genera `config/tenants/<id>.json` (interactivo o con flags) |
 | `npm run db:generate` / `db:migrate` / `db:studio` | Drizzle |
 
+`npm run typecheck && npm test && npm run build` es exactamente lo que corre
+`.github/workflows/ci.yml` en cada push a `main` y en cada PR.
+
 ## Ver el widget
 
-- `/widget` → índice de tenants con su branding.
 - `/widget/mesa-y-cia`, `/widget/vitea` → widget white-label del cliente.
-- `/api/widget/config?tenant=<id>` → config pública para embeber (branding, agent id,
-  tools). Nunca incluye secretos ni reglas de negocio.
+- `/widget` → índice de tenants. Solo en desarrollo: en producción responde `404`.
+- `/api/widget/config?tenant=<id>` → config pública para embeber (branding, primer
+  mensaje y nombres/descripciones de tools). Nunca incluye secretos, el `agentId` ni las
+  reglas de negocio, y sin `tenant` en producción responde `403`.
 
 ## Tenants incluidos
 
@@ -161,12 +172,16 @@ comandos.
 
 - Los datos de negocio de los tenants de ejemplo viven en el config (`settings`).
   Con un cliente real, `settings` se puebla desde su API: el handler no cambia.
-- Redis (Upstash) y Langfuse están **diseñados pero no implementados**; el punto de
-  extensión es `lib/db/repo.ts` y la tabla `events`. Ver `docs/architecture-decisions.md`.
+- Redis y Langfuse están **diseñados pero no implementados**. El rate limiting que sí
+  existe usa Postgres detrás de la interfaz `RateLimiter`, así que migrarlo a Redis es
+  cambiar un adaptador, no las rutas. Ver `docs/architecture-decisions.md`.
 - WhatsApp y telefonía requieren credenciales del cliente; el core ya tiene el
-  dispatcher y la persistencia, falta el adaptador de canal.
+  dispatcher y la persistencia, falta el adaptador de canal. Mientras el workspace no
+  tenga números importados, `/api/telephony/outbound-call` responde `503`.
 - El widget se entrega como página por tenant; para embeber en el sitio del cliente
   basta un `iframe` a `/widget/<id>` o consumir `/api/widget/config`.
 - No hay agente "por defecto" global ni modo demo: el agente de cada widget se resuelve
   en DB a partir del tenant. Si un tenant no está provisionado, el widget lo dice con
   los pasos exactos para provisionarlo.
+
+Para operar y diagnosticar en el día a día, ver `docs/runbook-interno.md`.

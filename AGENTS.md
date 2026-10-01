@@ -26,7 +26,7 @@ widget por cliente.
 npm run dev              # next dev
 npm run build            # next build
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest run  (5 archivos · 48 tests)
+npm test                 # vitest run  (9 archivos · 94 tests)
 
 npm run setup:new        # genera config/tenants/<id>.json (interactivo o con flags)
 npm run setup -- --tenant <id> --validate   # valida config; no toca nada
@@ -149,7 +149,7 @@ app/api/webhooks/elevenlabs/ post-call: HMAC + persistencia
 app/widget/[tenant]/         widget por tenant
 components/                  factoria-chat-widget.tsx y compañía
 tests/                       config, contrato Zod, aislamiento, handlers
-docs/                        architecture-decisions · onboarding-checklist · elevenlabs-capabilities
+docs/                        architecture-decisions · runbook-interno · onboarding-checklist
 ```
 
 ## Antes de dar por terminado

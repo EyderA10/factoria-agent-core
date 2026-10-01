@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancela un run anterior del mismo ref si llega uno nuevo: no aporta nada esperar
+# un commit que ya quedó obsoleto.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: ci → typecheck → test → build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # El proyecto corre en Node 24 (Vercel: nodeVersion 24.x).
+          node-version: "24"
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+        env:
+          # `lib/db/client.ts` lanza al importarse sin DATABASE_URL, y dos rutas lo
+          # importan. En el build no se abre ninguna conexión: el valor solo tiene que
+          # existir para que el módulo cargue. Los tests van con mocks, también sin DB.
+          DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci

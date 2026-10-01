@@ -126,10 +126,42 @@ export const events = pgTable(
     agentId: text("agent_id"),
     channel: text("channel"),
     eventType: text("event_type").notNull(),
+    /**
+     * Huella del evento entrante (hash de tipo + conversation_id + event_timestamp).
+     * Es la clave de idempotencia del webhook: si el insert colisiona, ElevenLabs
+     * reenvió el mismo evento y no hay que persistir mensajes de nuevo.
+     * NULL = evento sin clave calculable (no deduplicable).
+     */
+    dedupeKey: text("dedupe_key"),
     payloadJson: jsonb("payload_json"),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("events_tenant_type_idx").on(t.tenantId, t.eventType)]
+  (t) => [
+    index("events_tenant_type_idx").on(t.tenantId, t.eventType),
+    uniqueIndex("events_dedupe_key_idx").on(t.dedupeKey),
+  ]
+);
+
+/**
+ * Contadores de rate limiting por ventana (tenant o IP).
+ *
+ * `key` es única por (scope, key, windowStart), así que el INSERT ... ON CONFLICT
+ * DO UPDATE es atómico y no necesita transacción explícita ni bloqueo: dos requests
+ * concurrentes del mismo tenant incrementan el mismo contador sin perder ninguno.
+ *
+ * Es lectura+escritura por request en el camino público, pero el keyspace es
+ * acotado: una fila por clave y por ventana. Ver `lib/ratelimit/`.
+ */
+export const rateLimitCounters = pgTable(
+  "rate_limit_counters",
+  {
+    id: serial("id").primaryKey(),
+    scope: text("scope").notNull(),
+    key: text("key").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [uniqueIndex("rate_limit_counters_scope_key_window_idx").on(t.scope, t.key, t.windowStart)]
 );
 
 export type TenantRow = typeof tenants.$inferSelect;
@@ -137,3 +169,4 @@ export type AgentRow = typeof agents.$inferSelect;
 export type ConversationRow = typeof conversations.$inferSelect;
 export type ToolCallRow = typeof toolCalls.$inferSelect;
 export type EventRow = typeof events.$inferSelect;
+export type RateLimitCounterRow = typeof rateLimitCounters.$inferSelect;

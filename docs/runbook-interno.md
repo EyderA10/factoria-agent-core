@@ -178,16 +178,19 @@ falta definir `FACTORIA_TENANT_<X>_SECRET`: el runtime valida contra el hash en 
 | Verificación HMAC de webhooks | ✅ | — | ✅ a mano (`t=`/`v0=`, 30 min) |
 | Autenticación de agentes | ✅ | ✅ | ✅ allowlist + signed URL |
 | Voz: clonar, estilizar, 29+ idiomas | ✅ | ✅ | ⏳ |
-| Números entrantes / asignación a agente | parcial (import) | ✅ | ⏳ requiere credenciales |
-| Transferencia a humano | ✅ system tool | ✅ | ⏳ depende de datos del cliente |
-| WhatsApp inbound | import vía cuenta de Meta | ✅ | ⏳ requiere WABA |
+| Números entrantes / asignación a agente | ✅ (import + `agentId`) | ✅ | ✅ por API, falta el número |
+| Transferencia a humano | ✅ system tool | ✅ | ✅ `telephony.transfers` |
+| WhatsApp inbound | conexión desde Meta | ✅ | ✅ asignación por API, falta la WABA |
 | WhatsApp outbound | ✅ (plantillas) | ✅ | ✅ `app/api/messaging/whatsapp/outbound-message` |
 
 **Lo que no se puede automatizar.** El alta de WhatsApp se hace desde Integraciones
 iniciando sesión en la cuenta de Meta Business: requiere permisos de administrador,
-un número sin uso previo de WhatsApp y método de pago en el manager de Meta. La
-asignación de número a agente y la grabación de llamadas se hacen en el dashboard por
-cliente. El enrutamiento a CRM es responsabilidad del Tool Layer, no del proveedor.
+un número sin uso previo de WhatsApp y método de pago en el manager de Meta. Ahí
+también se autoriza el acceso de ElevenLabs a esa cuenta, y su token caduca, así que
+hay que saber renovarlo. En cambio, **la asignación del número o de la cuenta al
+agente sí es por API y la hacemos nosotros**: es un recurso del workspace de
+FactorIA, no del cliente. La grabación de llamadas se activa en el dashboard, también
+nuestro. El enrutamiento a CRM es responsabilidad del Tool Layer, no del proveedor.
 
 **Telephony provider.** La integración nativa del workspace es con Twilio (import por
 API); el resto de proveedores (SIP, Vonage, Telnyx, Plivo, Bandwidth, Exotel) se conectan
@@ -222,7 +225,7 @@ números) se deja en el dashboard y se recoge en el checklist de onboarding.
 | Tool Layer | `/api/tools/<tool>` | ✅ funcionando | `check_weather` con datos reales de Open-Meteo | — |
 | Telefonía outbound | `/api/telephony/outbound-call` | ⏳ código listo, sin probar contra la API | `503 telephony_not_configured` (correcto) | Importar un número a ElevenLabs y declarar `telephony.agentPhoneNumberId` |
 | WhatsApp outbound | `/api/messaging/whatsapp/outbound-message` | ⏳ código listo, sin probar contra la API | `503 whatsapp_not_configured` (correcto) | WABA de Meta + plantillas aprobadas + `whatsapp.phoneNumberId` |
-| WhatsApp inbound | — | ⏳ no implementado | — | WABA vinculada al agente (manual) |
+| WhatsApp inbound | — (lo entrega ElevenLabs) | ⏳ sin probar | — | WABA conectada y `assignedAgentId` puesto por API |
 
 **Los `503` son el resultado correcto**, no un fallo: significan que el core
 llegó hasta la última comprobación (autenticación, aislamiento y cuota ya pasaron) y
@@ -261,9 +264,14 @@ rechaza el mensaje, así que el prompt del agente tiene que pedir los dígitos.
   aprobadas**, declaradas como arriba. Meta no admite mensajes libres: todo envío
   saliente va por plantilla, y sin aprobación la API responde 422 aunque el código
   sea correcto.
-- *Ambos:* vincular el número al agente desde el dashboard de ElevenLabs. El core no
-  lo puede hacer por API, y así el número no queda en manos de quien llama al
-  endpoint.
+- *Ambos:* **vincular el número al agente lo hacemos nosotros, y por API.** El agente
+  vive en el workspace de FactorIA, así que el cliente no tiene acceso para hacerlo ni
+  para cambiarlo después. Las dos asignaciones están en la API:
+  `phoneNumbers.update(phone_number_id, { agentId })` para voz y
+  `whatsappAccounts.update(phone_number_id, { assignedAgentId, enableMessaging })`
+  para WhatsApp. Lo que el cliente aporta es el permiso del lado de Meta (o del
+  proveedor), no el enlace. El beneficio para nosotros es que el número no queda en
+  manos de quien llama al endpoint outbound.
 
 **Lo que aún no se ha probado de extremo a extremo.** La conversación de voz real
 (widget → micrófono → agente → tool) necesita un navegador con micrófono; la

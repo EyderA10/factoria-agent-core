@@ -120,6 +120,12 @@ npm run setup -- --tenant <id>                             # 4. provisiona
 
 - **Identificadores en inglés**; **textos de cara al usuario, comentarios de commit y
   documentación en español.**
+- **No nombres proveedores internos en los documentos que ve el cliente.**
+  `docs/onboarding-checklist.md` es un entregable que el cliente recibe y rellena
+  (`> Entregable para el cliente`): ahí se habla de "FactorIA", "nuestro proveedor" o
+  "la cuenta de Meta Business" (esa del cliente), nunca de ElevenLabs, Twilio, Vercel o
+  Supabase, ni del workspace compartido. Escribe en términos de FactorIA, no de la
+  cadena de montaje. El `README.md` y el runbook sí son internos y pueden nombrarlos.
 - **Commits Conventional Commits** en español: `feat(core):`, `fix(ui):`, `docs(readme):`, `chore:`.
 - **No añadas comentarios al código** salvo que te lo pidan explícitamente.
 - **No sobre-documentes.** Si el código ya se explica solo, no añadas README ni comentarios.

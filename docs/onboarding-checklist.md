@@ -175,25 +175,33 @@ una página propia, y `/embed/<id>` es exactamente lo que se embebe.
 
 ### B4. Canal WhatsApp
 
-8. Tú creas la cuenta de Meta Business, la WABA y el número, y lo vinculas al agente.
-9. Tú apruebas las plantillas en el gestor de WhatsApp: Meta no permite enviar
+8. Tú creas la cuenta de Meta Business, la WABA y el número, y autorizas a FactorIA a
+   conectar esa cuenta. Ese alta sí es manual y la tienes que hacer tú, porque Meta
+   exige entrar en tu cuenta de negocio y poner el método de pago.
+9. **Nosotros conectamos esa cuenta al agente**, en cuanto la hayas autorizado. No
+   depende de ti: el enlace lo hacemos nosotros desde dentro de FactorIA, es el mismo
+   paso para todos los clientes y no tienes que entrar en ningún panel nuestro.
+10. Tú apruebas las plantillas en el gestor de WhatsApp: Meta no permite enviar
    ninguna que no esté aprobada, así que conviene pedirlas con antelación.
-10. Nosotros declaramos el número y las plantillas que puedes usar, en lista blanca.
+11. Nosotros declaramos el número y las plantillas que puedes usar, en lista blanca.
 
 ### B5. Canal telefónico
 
-11. Compramos un número nuevo en el proveedor, lo importamos y lo asignamos al agente.
-    Recomendamos número propio y no portar el actual: la portabilidad tiene timescales
-    que no dependen de nosotros, y mientras tanto el número viejo sigue sirviendo.
-12. Si quieres pasar a un humano, dinos el número o extensión de destino (§8).
+12. Compramos el número en nuestro proveedor de telefonía, lo importamos y **nosotros lo
+    dejamos funcionando en el agente**. Si en §8 nos dices que quieres conservar tu
+    número actual, este paso es portarlo en vez de comprar uno, y ahí los plazos los
+    marca tu operador, no nosotros. Recomendamos número propio y no portar el actual:
+    la portabilidad tiene timescales que no dependen de nosotros, y mientras tanto el
+    número viejo sigue sirviendo.
+13. Si quieres pasar a un humano, dinos el número o extensión de destino (§8).
 
 ### B6. Antes de publicar
 
-13. Aviso de inteligencia artificial y de grabación: se muestra antes de la primera
+14. Aviso de inteligencia artificial y de grabación: se muestra antes de la primera
     interacción en todos los canales. Lo redactamos en marca FactorIA, pero **necesita
     validación jurídica** antes de salir; es un bloqueante de lanzamiento.
-14. Pruebas con los usuarios que indiques (§10) y revisión conjunta.
-15. Publicamos y acompañamos la supervisión inicial que acordemos.
+15. Pruebas con los usuarios que indiques (§10) y revisión conjunta.
+16. Publicamos y acompañamos la supervisión inicial que acordemos.
 
 ---
 

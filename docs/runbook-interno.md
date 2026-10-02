@@ -1,11 +1,5 @@
 # Runbook interno — FactorIA Agent Core
 
-> Documento de operación para el equipo de FactorIA. No es un entregable de cliente.
-> Absorbe la antigua `docs/elevenlabs-capabilities.md` (matriz de capacidades del
-> proveedor de voz) y añade la operación diaria del core.
-
----
-
 ## 1. Mapa del sistema
 
 | Pieza | Ruta | Qué sabe de otros tenants |
@@ -125,7 +119,7 @@ falta definir `FACTORIA_TENANT_<X>_SECRET`: el runtime valida contra el hash en 
 | Números entrantes / asignación a agente | parcial (import) | ✅ | ⏳ requiere credenciales |
 | Transferencia a humano | ✅ system tool | ✅ | ⏳ depende de datos del cliente |
 | WhatsApp inbound | import vía cuenta de Meta | ✅ | ⏳ requiere WABA |
-| WhatsApp outbound | ✅ (plantillas) | ✅ | ⏳ |
+| WhatsApp outbound | ✅ (plantillas) | ✅ | ✅ `app/api/messaging/whatsapp/outbound-message` |
 
 **Lo que no se puede automatizar.** El alta de WhatsApp se hace desde Integraciones
 iniciando sesión en la cuenta de Meta Business: requiere permisos de administrador,
@@ -146,6 +140,58 @@ URLs, outbound, post-call) y `@elevenlabs/react` 1.15.2 (cliente: `ConversationP
 `lib/provisioning/service.ts` vía `scripts/setup.ts`, con el config del tenant como
 fuente de verdad. Lo sensible o que varía por cliente (voz fina, plantillas de WhatsApp,
 números) se deja en el dashboard y se recoge en el checklist de onboarding.
+
+## 8. Estado de los canales
+
+| Canal | Endpoint | Estado | Validado en producción | Falta para cerrarlo |
+|---|---|---|---|---|
+| Web (widget) | `/api/widget/config`, `/api/elevenlabs/session` | ✅ funcionando | signedUrl emitida, agente correcto | — |
+| Tool Layer | `/api/tools/<tool>` | ✅ funcionando | `check_weather` con datos reales de Open-Meteo | — |
+| Telefonía outbound | `/api/telephony/outbound-call` | ⏳ código listo, sin probar contra la API | `503 telephony_not_configured` (correcto) | Importar un número a ElevenLabs y declarar `telephony.agentPhoneNumberId` |
+| WhatsApp outbound | `/api/messaging/whatsapp/outbound-message` | ⏳ código listo, sin probar contra la API | `503 whatsapp_not_configured` (correcto) | WABA de Meta + plantillas aprobadas + `whatsapp.phoneNumberId` |
+| WhatsApp inbound | — | ⏳ no implementado | — | WABA vinculada al agente (manual) |
+
+**Los `503` son el resultado correcto**, no un fallo: significan que el core
+llegó hasta la última comprobación (autenticación, aislamiento y cuota ya pasaron) y
+se detuvo en la única pieza que depende de una cuenta del cliente. En cuanto el
+tenant declare el identificador, la misma llamada avanza contra la API real.
+
+**Plantillas de WhatsApp.** El tenant declara en `whatsapp.templates` a qué plantillas
+tiene derecho; el consumidor del endpoint manda la clave, nunca el nombre real de Meta.
+El idioma sale del config porque cada plantilla se aprueba para un idioma concreto:
+
+```jsonc
+"whatsapp": {
+  "phoneNumberId": "<id del número en ElevenLabs>",
+  "templates": {
+    "confirmacion": { "name": "confirmacion_reserva_v2", "languageCode": "es" }
+  }
+}
+```
+
+Un envío se pide entonces con `template: "confirmacion"`; una clave que el tenant no
+declare devuelve `400` con la lista de las que sí.
+
+**Lo que se requiere por cada canal saliente.**
+
+- *Telefonía:* un número con voz en el proveedor (hoy Twilio vía import por API).
+  FactorIA lo importa desde el dashboard, y luego el core solo referencia su
+  `agentPhoneNumberId`. El proveedor no está cableado en el código.
+- *WhatsApp:* una cuenta de Meta Business con WABA, un número habilitado en
+  WhatsApp Business, método de pago en el manager de Meta y **plantillas
+  aprobadas**, declaradas como arriba. Meta no admite mensajes libres: todo envío
+  saliente va por plantilla, y sin aprobación la API responde 422 aunque el código
+  sea correcto.
+- *Ambos:* vincular el número al agente desde el dashboard de ElevenLabs. El core no
+  lo puede hacer por API, y así el número no queda en manos de quien llama al
+  endpoint.
+
+**Lo que aún no se ha probado de extremo a extremo.** La conversación de voz real
+(widget → micrófono → agente → tool) necesita un navegador con micrófono; la
+validación hecha fue por HTTP contra los endpoints. El webhook post-call (HMAC,
+idempotencia y persistencia de transcripción/coste) tampoco se ha disparado con una
+llamada real: solo está cubierto por tests. Ambos son el siguiente paso natural en
+cuanto haya una llamada o un número de verdad.
 
 ## 9. Futuro
 

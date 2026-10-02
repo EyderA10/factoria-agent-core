@@ -71,6 +71,38 @@ export const tenantConfigSchema = z.object({
     })
     .optional(),
   /**
+   * Canal WhatsApp saliente. Opcional: si no está, el tenant no puede enviar
+   * mensajes y `/api/messaging/whatsapp/outbound-message` responde 503 para él.
+   *
+   * `phoneNumberId` es el id del número de WhatsApp en ElevenLabs (registrado por
+   * el cliente en su cuenta de Meta y vinculado al agente), NO el número en texto.
+   * Igual que en telefonía se resuelve server-side para que el consumidor no pueda
+   * elegir desde qué número sale el mensaje.
+   *
+   * `templates` es la lista blanca de plantillas del tenant: el consumidor del
+   * endpoint nombra una CLAVE de este mapa y nunca el nombre real de Meta. Motivo:
+   * las plantillas se aprueban por WABA, así que una WABA suele tener varias
+   * (confirmación, recordatorio, promoción) y sin esta lista blanca el consumidor
+   * podría enviar cualquiera de ellas. El config declara a qué plantillas tiene
+   * derecho el tenant, igual que hace con sus tools.
+   */
+  whatsapp: z
+    .object({
+      phoneNumberId: z.string().min(1),
+      templates: z
+        .record(
+          z.string().min(1).regex(/^[a-z0-9_]+$/, "clave de plantilla en snake_case"),
+          z.object({
+            /** Nombre de la plantilla tal como figura aprobada en Meta. */
+            name: z.string().min(1),
+            /** Idioma de la plantilla aprobada; no lo elige el consumidor. */
+            languageCode: z.string().min(2).max(10),
+          })
+        )
+        .refine((t) => Object.keys(t).length > 0, "declara al menos una plantilla"),
+    })
+    .optional(),
+  /**
    * Origins permitidos para embeber el widget (esquema + host, sin path). Vacío o
    * ausente = no se restringe el origen, pensado para desarrollo.
    */
@@ -90,3 +122,4 @@ export type ToolConfig = z.infer<typeof toolConfigSchema>;
 export type TenantConfig = z.infer<typeof tenantConfigSchema>;
 export type Branding = TenantConfig["branding"];
 export type TenantTelephony = NonNullable<TenantConfig["telephony"]>;
+export type TenantWhatsApp = NonNullable<TenantConfig["whatsapp"]>;

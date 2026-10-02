@@ -32,6 +32,40 @@ export const toolConfigSchema = z.object({
   settings: z.record(z.string(), z.unknown()).default({}),
 });
 
+/**
+ * Un origin canónico (`esquema://host[:puerto]`), sin barra final.
+ *
+ * Se valida y se normaliza en el schema, no en cada consumidor, porque de lo
+ * contrario los dos que la usan se desincronizan y fallan en silencio:
+ * `isOriginAllowed` compara cadenas exactas (una barra final nunca casa con el
+ * `Origin` que manda el navegador) mientras que el comodín de `frame-ancestors`
+ * SÍ es válido en CSP (y ampliaría el framing a subdominios que la API seguiría
+ * denegando). Con `https://cliente.com/`, que es como se escribe un dominio a
+ * mano, el embed no cargaba y no había ningún error que explicara por qué.
+ * Al fallar en el schema, el error sale al validar el config, no en producción.
+ */
+const originSchema = z
+  .string()
+  .min(1, "el origen no puede estar vacío")
+  .superRefine((value, ctx) => {
+    const fail = (message: string) =>
+      ctx.addIssue({ code: "custom", message: `${value}: ${message}` });
+    if (value.trim() !== value) fail("no admite espacios al borde");
+    if (value.includes("*")) fail("no admite comodines: declara cada subdominio explícito");
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      fail("no es una URL válida");
+      return;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") fail("solo http o https");
+    if (url.username || url.password) fail("no admite credenciales");
+    if (url.search || url.hash) fail("no admite query ni fragmento");
+    if (url.pathname !== "/") fail("es solo esquema y host: no admitas path");
+  })
+  .transform((value) => new URL(value).origin);
+
 export const tenantConfigSchema = z.object({
   id: z.string().min(1),
   slug: z.string().min(1),
@@ -47,15 +81,23 @@ export const tenantConfigSchema = z.object({
     primaryColor: z.string().default("#4f46e5"),
     icon: z.string().default("🤖"),
   }),
-  agent: z.object({
-    name: z.string().min(1),
-    firstMessage: z.string().min(1),
-    systemPrompt: z.string().min(1),
-    language: z.string().default("es"),
-    timezone: z.string().default("America/Bogota"),
-    ttsModel: z.string().default("eleven_flash_v2_5"),
-    llm: z.string().default("gemini-2.5-flash"),
-  }),
+  /**
+   * `.strict()` a propósito: una clave mal anidada dentro de `agent` sería
+   * descartada en silencio por el comportamiento por defecto de Zod, y el
+   * default de `allowedOrigins` la convertiría en "cualquier origen". Con
+   * strict, el error aparece al cargar el config en vez de abrir un agujero.
+   */
+  agent: z
+    .object({
+      name: z.string().min(1),
+      firstMessage: z.string().min(1),
+      systemPrompt: z.string().min(1),
+      language: z.string().default("es"),
+      timezone: z.string().default("America/Bogota"),
+      ttsModel: z.string().default("eleven_flash_v2_5"),
+      llm: z.string().default("gemini-2.5-flash"),
+    })
+    .strict(),
   /**
    * Canal telefónico. Opcional: si no está, el tenant no tiene llamadas salientes
    * y `/api/telephony/outbound-call` responde 503 para él.
@@ -68,6 +110,21 @@ export const tenantConfigSchema = z.object({
   telephony: z
     .object({
       agentPhoneNumberId: z.string().min(1),
+      /**
+       * Destinos de transferencia a humano, en lista blanca y por tenant: el
+       * `number` sale de aquí y el LLM nunca elige a quién pasar la llamada.
+       * Solo aplica a llamadas; `condition` es el disparador en lenguaje natural.
+       */
+      transfers: z
+        .array(
+          z.object({
+            number: z.string().regex(/^\+[1-9]\d{7,14}$/, "E.164, p.ej. +573001234567"),
+            condition: z.string().min(1),
+            transferType: z.enum(["blind", "sip_refer"]).optional(),
+            postDialDigits: z.string().max(64).optional(),
+          })
+        )
+        .optional(),
     })
     .optional(),
   /**
@@ -103,17 +160,28 @@ export const tenantConfigSchema = z.object({
     })
     .optional(),
   /**
-   * Origins permitidos para embeber el widget (esquema + host, sin path). Vacío o
-   * ausente = no se restringe el origen, pensado para desarrollo.
-   */
-  allowedOrigins: z.array(z.string().min(1)).default([]),
+ * Origins permitidos para embeber el widget de este tenant (esquema + host, sin
+ * path). Es OBLIGATORIA: sin ella el config no valida, para que una clave perdida
+ * o mal anidada salte en vez de degradar en silencio.
+ *
+ * Lista vacía = embed cerrado. Es la postura segura por defecto: un tenant sin
+ * dominio declarado no se puede embeber en ninguna web. Se llena con la URL que
+ * da el cliente en el onboarding (checklist §6).
+ */
+  allowedOrigins: z.array(originSchema),
   tools: z.array(toolConfigSchema).min(1),
 });
 
-/** Origin permitido de un tenant. Vacío = cualquier origen (solo desarrollo). */
+/**
+ * ¿El origin de la petición puede embeber el widget de este tenant?
+ *
+ * Sin cabecera `Origin` la respuesta es `true`: no es una petición desde una web
+ * ajena (same-origin o server-to-server), y en un GET same-origin el navegador
+ * ni la envía. Para cross-origin sí manda la lista, y vacía bloquea.
+ */
 export function isOriginAllowed(allowedOrigins: string[], origin: string | null): boolean {
-  if (allowedOrigins.length === 0) return true;
-  if (!origin) return false;
+  if (!origin) return true;
+  if (allowedOrigins.length === 0) return false;
   return allowedOrigins.some((allowed) => allowed.trim().toLowerCase() === origin.trim().toLowerCase());
 }
 

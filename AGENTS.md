@@ -93,6 +93,18 @@ Estos son el contrato del core. Si tocas algo aquí, es un cambio de arquitectur
 7. **Los secretos no se versionan.** El provisioning los imprime **una sola vez**:
    quedan como selector en el secret store del workspace de ElevenLabs (nunca en el
    body de la tool) y su hash en la tabla `tenants`.
+1d. **`allowedOrigins` se normaliza y se valida en el schema, no en cada consumidor.**
+   Salen canónicos (`esquema://host[:puerto]`, sin barra final, host en minúsculas)
+   porque los dos consumidores no se comportan igual si no: `isOriginAllowed`
+   compara cadenas exactas, mientras que el comodín de `frame-ancestors` **sí**
+   vale en CSP. Sin normalizar, `https://cliente.com/` no cargaba el widget sin
+   dar ningún error, y `https://*.cliente.com` ampliaba el framing a subdominios
+   que la API seguía denegando. Se rechazan comodines, paths, credenciales y
+   esquemas distintos de http/https: el error sale al validar el config.
+8. **El embed se sirve siempre en un iframe de FactorIA.** La web del cliente pega
+   `public/embed.js` y no recibe ni una clave ni un endpoint de sesión. Todo lo que
+   se expone a terceros se decide con `allowedOrigins`, y esa lista vale a la vez
+   para el `Origin` de la API y para `frame-ancestors` de `/embed/<tenant>`.
 
 ## Añadir un cliente
 
@@ -113,6 +125,14 @@ npm run setup -- --tenant <id>                             # 4. provisiona
 - **No sobre-documentes.** Si el código ya se explica solo, no añadas README ni comentarios.
 - Valida con **Zod 4**. Reutiliza `getToolConfig` en lugar de reimplementar la
   resolución de config de tools.
+- **El widget embebido vive en un iframe servido por FactorIA**, no inyectado en la web
+  del cliente. Por eso su `fetch` a `/api/elevenlabs/session` es same-origin y no
+  hace falta CORS. Si algún día se pasa a inyectar el widget directamente en la web
+  del cliente, hay que añadir CORS y quitar `frame-ancestors`.
+- El `targetOrigin` de `postMessage` es el origen de quien **recibe**. El resize del
+  embed lo recibe la web del cliente, así que el iframe necesita el handshake
+  `factoria-embed:init` para saber a qué origen publicar. Publicar con el propio
+  origen se descarta en silencio.
 - En el widget, los ids de mensajes deben salir de `nextIdRef` (por instancia), nunca de
   un contador a nivel de módulo: genera claves React duplicadas.
 - **Reprovisionar crea tools nuevas**: al namespacear, el provisioning no encuentra
@@ -157,8 +177,12 @@ app/api/widget/config/       config pública white-label
 app/api/webhooks/elevenlabs/ post-call: HMAC + persistencia
 app/api/telephony/outbound-call/  llamada saliente (agentId y número server-side)
 app/api/messaging/whatsapp/outbound-message/  mensaje saliente (plantilla por clave)
-app/widget/[tenant]/         widget por tenant
-components/                  factoria-chat-widget.tsx y compañía
+app/widget/[tenant]/         widget por tenant (página propia, para revisar)
+app/embed/[tenant]/          lo que se embebe en la web del cliente
+proxy.ts                     cabeceras de /embed (frame-ancestors por tenant)
+public/embed.js              loader vanilla que el cliente pega en su web
+lib/embed.ts                 contrato del embed y cabeceras de seguridad
+components/                  factoria-chat-widget.tsx · factoria-embed-shell.tsx
 tests/                       config, contrato Zod, aislamiento, handlers
 docs/                        architecture-decisions · runbook-interno · onboarding-checklist
 ```

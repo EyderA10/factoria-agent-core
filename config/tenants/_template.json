@@ -21,7 +21,18 @@
     "ttsModel": "eleven_flash_v2_5",
     "llm": "gemini-2.5-flash"
   },
-  "allowedOrigins": [],
+  "//": "Origins donde este tenant puede embeber su widget (esquema + host, sin path). Al onboarding se añade el dominio real del cliente; lista vacía = embed cerrado.",
+  "allowedOrigins": ["http://localhost:3000"],
+  "//telephony": "Opcional. Importa el número en ElevenLabs y pon aquí su agentPhoneNumberId (NO el número en texto). `transfers` es la lista blanca de destinos para pasar a un humano: el agente elige a cuál según la condición, nunca inventa uno.",
+  "telephony": {
+    "agentPhoneNumberId": "<id del número importado en ElevenLabs>",
+    "transfers": [
+      {
+        "number": "+573001234567",
+        "condition": "el cliente pide hablar con una persona"
+      }
+    ]
+  },
   "tools": [
     {
       "name": "mi_tool",

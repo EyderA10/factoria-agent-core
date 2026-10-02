@@ -19,9 +19,8 @@ export function getElevenLabsClient(): ElevenLabsClient {
 }
 
 export interface SessionForAgent {
-  mode: "public_agent" | "signed_url";
-  agentId?: string;
-  signedUrl?: string;
+  mode: "signed_url";
+  signedUrl: string;
 }
 
 /**
@@ -46,18 +45,18 @@ export async function resolveAgentIdForTenant(tenantId?: string | null): Promise
 }
 
 /**
- * Genera un signed URL (agentes privados) o devuelve el agentId (agentes públicos).
+ * Genera un signed URL para el agente del tenant.
  *
- * El agente se resuelve SIEMPRE a partir del tenant, en el servidor.
+ * El agente se resuelve SIEMPRE a partir del tenant, en el servidor, y la respuesta
+ * solo lleva el signed URL: nunca el `agentId`. Antes había una rama `public_agent`
+ * que devolvía el id crudo cuando faltaba la API key, y eso convertía este endpoint
+ * público en un enumerador de agentes del workspace para cualquiera que lo llamara
+ * sin cabecera `Origin`. Ahora sin key no hay sesión: lo reporta la ruta.
  */
 export async function sessionForAgent(tenantId?: string | null): Promise<SessionForAgent> {
   const agentId = await resolveAgentIdForTenant(tenantId);
   if (!agentId) {
     throw new Error("agent_id_required");
-  }
-
-  if (!hasElevenLabsApiKey()) {
-    return { mode: "public_agent", agentId };
   }
 
   const response = await getElevenLabsClient().conversationalAi.conversations.getSignedUrl({

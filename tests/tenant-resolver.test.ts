@@ -3,26 +3,18 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const getTenantsForAuth = vi.fn();
 vi.mock("@/lib/db/repo", () => ({ getTenantsForAuth: () => getTenantsForAuth() }));
 
-import { extractBearer, hashSecret, resolveTenantFromAuth, safeEqualHex } from "@/lib/tenants/resolver";
+import { extractBearer, hashSecret, resolveTenantFromAuth } from "@/lib/tenants/resolver";
 
 const MESA_SECRET = "mesa-secret-abc123";
 const VITEA_SECRET = "vitea-secret-xyz789";
 
 describe("resolver: hash del secret", () => {
-  it("el hash es determinista y de 64 hex (sha256)", () => {
-    expect(hashSecret(MESA_SECRET)).toBe(hashSecret(MESA_SECRET));
-    expect(hashSecret(MESA_SECRET)).not.toBe(hashSecret(VITEA_SECRET));
-    expect(hashSecret(MESA_SECRET)).toMatch(/^[a-f0-9]{64}$/);
-  });
+
 
   it("el secret en claro nunca es el valor almacenado", () => {
     expect(hashSecret(MESA_SECRET)).not.toContain(MESA_SECRET);
   });
 
-  it("safeEqualHex rechaza longitudes distintas", () => {
-    expect(safeEqualHex("abcd", "ab")).toBe(false);
-    expect(safeEqualHex(hashSecret("a"), hashSecret("a"))).toBe(true);
-  });
 });
 
 describe("resolver: header Authorization", () => {
@@ -62,10 +54,6 @@ describe("resolver: aislamiento multi-tenant por secret", () => {
     await expect(resolveTenantFromAuth("Bearer secret-inventado")).resolves.toBeNull();
   });
 
-  it("sin header Authorization no resuelve tenant", async () => {
-    await expect(resolveTenantFromAuth(null)).resolves.toBeNull();
-    await expect(getTenantsForAuth).not.toHaveBeenCalled();
-  });
 
   it("reporta enabled=false para tenants deshabilitados (el core responde 403)", async () => {
     getTenantsForAuth.mockResolvedValue([

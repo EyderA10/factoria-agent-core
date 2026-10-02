@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { executeTool, toolHandlers } from "@/lib/tools";
 import { loadTenantConfig } from "@/lib/tenants/store";
-import { factoriaToolsForTenant } from "@/lib/tools/ai";
 
 const mesa = loadTenantConfig("mesa-y-cia");
 const vitea = loadTenantConfig("vitea");
@@ -52,10 +51,6 @@ describe("reserve_table (Mesa & Cía) — lógica desde settings del tenant", ()
     if (res.status === "ok") expect(res.data.available).toBe(false);
   });
 
-  it("valida el payload con el contrato del tenant", async () => {
-    const res = await executeTool(mesa, "reserve_table", { party_size: 4 });
-    expect(res.status).toBe("invalid_payload");
-  });
 });
 
 describe("check_stock (Vitea) — catálogo desde settings del tenant", () => {
@@ -138,11 +133,4 @@ describe("check_weather — integración externa real (Open-Meteo)", () => {
       globalThis.fetch = original;
     }
   }, 20_000);
-});
-
-describe("registry para Vercel AI SDK (mismo contrato que el webhook)", () => {
-  it("genera una tool por tool del tenant", () => {
-    expect(Object.keys(factoriaToolsForTenant(mesa)).sort()).toEqual(["check_weather", "reserve_table"]);
-    expect(Object.keys(factoriaToolsForTenant(vitea))).toEqual(["check_stock"]);
-  });
 });

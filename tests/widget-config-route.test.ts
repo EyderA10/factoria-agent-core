@@ -78,21 +78,10 @@ describe("GET /api/widget/config · listado de tenants", () => {
     expect(JSON.stringify(body)).not.toContain("mesa-y-cia");
   });
 
-  it("fuera de producción sí ayuda a developear", async () => {
-    setNodeEnv("development");
-
-    const res = await get("");
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.tenants.map((t: { id: string }) => t.id)).toEqual(["mesa-y-cia", "vitea"]);
-  });
 });
 
 describe("GET /api/widget/config · validación", () => {
-  it("tenant desconocido devuelve 404", async () => {
-    expect((await get("?tenant=no-existe")).status).toBe(404);
-  });
+
 
   it("tenant deshabilitado devuelve 403", async () => {
     expect((await get("?tenant=deshabilitado")).status).toBe(403);

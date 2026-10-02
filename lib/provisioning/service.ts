@@ -56,7 +56,7 @@ async function elevenlabsRest(method: string, path: string, body: unknown) {
   const res = await fetch(`${REST_BASE}${path}`, {
     method,
     headers: { "xi-api-key": apiKey ?? "", "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    ...(method === "GET" ? {} : { body: JSON.stringify(body) }),
   });
   const text = await res.text();
   if (!res.ok) {
@@ -69,6 +69,13 @@ async function elevenlabsRest(method: string, path: string, body: unknown) {
     throw new Error(`ElevenLabs REST ${method} ${path} → ${res.status}: ${JSON.stringify(detail)}`);
   }
   return JSON.parse(text || "{}");
+}
+
+/** System tools que el agente ya tiene, para no perderlas al hacer PATCH. */
+async function fetchBuiltInTools(agentId: string): Promise<Record<string, unknown>> {
+  const agent = await elevenlabsRest("GET", `/v1/convai/agents/${agentId}`, undefined);
+  const builtIn = (agent?.conversation_config?.agent?.prompt?.built_in_tools ?? {}) as Record<string, unknown>;
+  return builtIn;
 }
 
 type SecretLocator = { secretId?: string };
@@ -137,7 +144,7 @@ async function ensureWorkspaceSecret(
   return { secretId: existing.secretId, created: false, updated: true };
 }
 
-function buildRestConfig(tenant: TenantConfig, toolIds: string[]) {
+function buildRestConfig(tenant: TenantConfig, toolIds: string[], builtInTools?: Record<string, unknown>) {
   return {
     text_only: false,
     conversation: {
@@ -158,9 +165,28 @@ function buildRestConfig(tenant: TenantConfig, toolIds: string[]) {
         llm: tenant.agent.llm,
         timezone: tenant.agent.timezone,
         tool_ids: toolIds,
+        ...(builtInTools ? { built_in_tools: builtInTools } : {}),
       },
     },
     tts: { model_id: tenant.agent.ttsModel },
+  };
+}
+
+/** La tool de sistema `transfer_to_number`, con los destinos del config del tenant. */
+function transferToNumberTool(transfers: NonNullable<TenantConfig["telephony"]>["transfers"]) {
+  return {
+    type: "system",
+    name: "transfer_to_number",
+    description: "Pasa la llamada a un humano. Úsala solo cuando se cumpla la condición.",
+    params: {
+      system_tool_type: "transfer_to_number",
+      transfers: (transfers ?? []).map((transfer) => ({
+        transfer_destination: { type: "phone", phone_number: transfer.number },
+        condition: transfer.condition,
+        ...(transfer.transferType ? { transfer_type: transfer.transferType } : {}),
+        ...(transfer.postDialDigits ? { post_dial_digits: transfer.postDialDigits } : {}),
+      })),
+    },
   };
 }
 
@@ -339,7 +365,24 @@ export async function provisionTenant(
   // firstMessage y los tool_ids del primero).
   const agentRow = await getAgentForTenant(tenantId);
   const existingAgentId = agentRow?.elevenlabsAgentId ?? undefined;
-  const conversationConfig = buildRestConfig(tenant, toolIds);
+
+  // `built_in_tools` se REEMPLAZA entero en el PATCH: si el agente ya tenía system
+  // tools puestas a mano en el dashboard (end_call, voicemail_detection…), mandando
+  // solo las nuestras desaparecerían. Se leen y se reenvían todas.
+  const declaredTransfers = tenant.telephony?.transfers;
+  let builtInTools: Record<string, unknown> | undefined;
+  if (declaredTransfers?.length) {
+    const current = dryRun || !existingAgentId ? {} : await fetchBuiltInTools(existingAgentId);
+    builtInTools = { ...current, transfer_to_number: transferToNumberTool(declaredTransfers) };
+    plan.push({
+      action: "update",
+      kind: "agent",
+      name: agentName,
+      note: `transfer_to_number con ${declaredTransfers.length} destino(s)`,
+    });
+  }
+
+  const conversationConfig = buildRestConfig(tenant, toolIds, builtInTools);
 
   if (existingAgentId && opts.forceUpdateAgent) {
     await elevenlabsRest("PATCH", `/v1/convai/agents/${existingAgentId}`, { conversation_config: conversationConfig });

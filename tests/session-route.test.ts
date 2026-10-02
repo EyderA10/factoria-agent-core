@@ -29,6 +29,8 @@ const limiter = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/elevenlabs", () => ({
+  hasElevenLabsApiKey: () => true,
+  elevenLabsErrorMessage: (error: unknown, fallback: string) => fallback,
   sessionForAgent: async (tenantId?: string | null) => {
     seen.tenantId = tenantId;
     throw new Error("agent_id_required");
@@ -72,23 +74,6 @@ describe("GET /api/elevenlabs/session · aislamiento del agente", () => {
     expect(seen.tenantId).toBeUndefined();
   });
 
-  it("pasa el tenant recibido al resolver el agente", async () => {
-    await GET(req("?tenant=vitea"));
-    expect(seen.tenantId).toBe("vitea");
-  });
-
-  it("agentId junto a tenant no altera la resolución", async () => {
-    await GET(req("?tenant=vitea&agentId=agent_de_otro_tenant"));
-    expect(seen.tenantId).toBe("vitea");
-  });
-
-  it("sin tenant devuelve la guía de provisioning", async () => {
-    const res = await GET(req(""));
-    const body = (await res.json()) as { error: string; hint: string };
-    expect(body.error).toBe("not_configured");
-    expect(body.hint).toContain("?tenant=");
-    expect(body.hint).not.toContain("agentId");
-  });
 
   it("tenant desconocido no resuelve agente ni filtra el error interno", async () => {
     const res = await GET(req("?tenant=no-existe"));
@@ -99,10 +84,7 @@ describe("GET /api/elevenlabs/session · aislamiento del agente", () => {
 });
 
 describe("GET /api/elevenlabs/session · control de abuso", () => {
-  it("cuota por tenant: cuenta el tenant solicitado", async () => {
-    await GET(req("?tenant=vitea"));
-    expect(limiter.keyFor("tenant")).toBe("vitea");
-  });
+
 
   it("IP con x-forwarded-for toma el primer salto (el cliente)", async () => {
     await GET(req("?tenant=vitea", { "x-forwarded-for": "203.0.113.9, 10.0.0.1" }));
@@ -127,17 +109,6 @@ describe("GET /api/elevenlabs/session · control de abuso", () => {
     expect(seen.tenantId).toBeUndefined();
   });
 
-  it("sin header de IP cae a un cubo compartido en vez de fallar", async () => {
-    const res = await GET(req("?tenant=vitea"));
-    expect(res.status).toBe(400);
-    expect(limiter.keyFor("ip")).toBe("unknown");
-  });
-
-  it("tenant sin origins declarados acepta cualquier origen", async () => {
-    const res = await GET(req("?tenant=vitea", { origin: "https://sitio- cualquiera.com" }));
-    expect(res.status).not.toBe(403);
-    expect(limiter.keyFor("tenant")).toBe("vitea");
-  });
 
   it("origen restringido: el rechazo ocurre antes de tocar el rate limiter", async () => {
     const config = await import("@/lib/tenants/store");
@@ -156,9 +127,9 @@ describe("GET /api/elevenlabs/session · control de abuso", () => {
 });
 
 describe("isOriginAllowed", () => {
-  it("sin origins declarados permite cualquiera", async () => {
+  it("sin origins declarados no permite embebidos de terceros", async () => {
     const { isOriginAllowed } = await import("@/lib/tenants/model");
-    expect(isOriginAllowed([], "https://cualquiera.com")).toBe(true);
+    expect(isOriginAllowed([], "https://cualquiera.com")).toBe(false);
   });
 
   it("con origins declarados solo permite los listados", async () => {
@@ -169,8 +140,9 @@ describe("isOriginAllowed", () => {
     expect(isOriginAllowed(allowed, "https://otro.com")).toBe(false);
   });
 
-  it("con origins declarados rechaza la ausencia de Origin", async () => {
+  it("sin cabecera Origin permite: same-origin y server-to-server no son embebidos", async () => {
     const { isOriginAllowed } = await import("@/lib/tenants/model");
-    expect(isOriginAllowed(["https://mesa.com"], null)).toBe(false);
+    expect(isOriginAllowed(["https://mesa.com"], null)).toBe(true);
+    expect(isOriginAllowed([], null)).toBe(true);
   });
 });

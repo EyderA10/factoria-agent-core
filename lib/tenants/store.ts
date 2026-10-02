@@ -9,7 +9,22 @@ import { tenantConfigSchema, type TenantConfig } from "./model";
 
 export const TENANTS_DIR = resolve(process.cwd(), "config/tenants");
 
+/**
+ * Ids de tenant admitidos: una palabra. El `_` inicial es lo que permite cargar
+ * `_template`; el resto no admite separadores ni `..`.
+ *
+ * el id llega desde fuera (`?tenant=` de la API, `[tenant]` de las rutas) y se
+ * concatena aquí a una ruta de fichero, así que sin este guardia `tenant=../x`
+ * salía del directorio. No llegaba a filtrar contenido —el config tiene que pasar
+ * el schema o se devuelve 404— pero leer un fichero arbitrario no debería
+ * depender de eso.
+ */
+const TENANT_ID_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
+
 function tenantFile(id: string): string {
+  if (!TENANT_ID_PATTERN.test(id)) {
+    throw new Error(`Id de tenant inválido: "${id}". Se permiten letras, dígitos, "-" y "_".`);
+  }
   return join(TENANTS_DIR, `${id}.json`);
 }
 

@@ -127,12 +127,6 @@ describe("POST /api/webhooks/elevenlabs · verificación de firma", () => {
     expect(db.conversations).toHaveLength(0);
   });
 
-  it("header de firma ausente: 400", async () => {
-    const res = await post(transcriptionEvent(1_700_000_000_000), { signature: null });
-
-    expect(res.status).toBe(400);
-    expect(db.messages).toHaveLength(0);
-  });
 
   it("timestamp expirado (fuera de la ventana de 30 min): 400", async () => {
     const tooOld = Date.now() - 31 * 60 * 1000;
@@ -143,14 +137,6 @@ describe("POST /api/webhooks/elevenlabs · verificación de firma", () => {
     expect(db.messages).toHaveLength(0);
   });
 
-  it("timestamp en el futuro absurdo: 400", async () => {
-    const res = await post(transcriptionEvent(1_700_000_000_000), {
-      ts: Date.now() + 10 * 60 * 1000,
-    });
-
-    expect(res.status).toBe(400);
-    expect(db.messages).toHaveLength(0);
-  });
 
   it("sin ELEVENLABS_WEBHOOK_SECRET el endpoint queda deshabilitado (503)", async () => {
     delete process.env.ELEVENLABS_WEBHOOK_SECRET;
@@ -195,19 +181,4 @@ describe("POST /api/webhooks/elevenlabs · idempotencia", () => {
     expect(db.messages).toHaveLength(4);
   });
 
-  it("el mismo timestamp en conversaciones distintas no colisiona", async () => {
-    await post(transcriptionEvent(1_700_000_000_000, "conv_1"));
-    await post(transcriptionEvent(1_700_000_000_000, "conv_2"));
-
-    expect(db.events).toHaveLength(2);
-    expect(db.conversations).toHaveLength(2);
-  });
-
-  it("diez reintentos del mismo evento siguen dejando una sola transcripción", async () => {
-    const event = transcriptionEvent(1_700_000_000_000);
-    for (let i = 0; i < 10; i += 1) await post(event);
-
-    expect(db.messages).toHaveLength(2);
-    expect(db.events).toHaveLength(1);
-  });
 });

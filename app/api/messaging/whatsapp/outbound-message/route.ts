@@ -19,7 +19,10 @@ export const dynamic = "force-dynamic";
 const OutboundMessageSchema = z.object({
   toNumber: z
     .string()
-    .regex(/^\+[1-9]\d{7,14}$/, "debe estar en formato E.164, p.ej. +573001234567"),
+    .regex(
+      /^\+?[1-9]\d{7,14}$/,
+      "debe estar en E.164 con código de país, con o sin '+': 573001234567"
+    ),
   template: z
     .string()
     .min(1)
@@ -84,6 +87,11 @@ export async function POST(req: NextRequest) {
   }
   const { toNumber, template: templateKey, params } = parsed.data;
 
+  // El `whatsapp_user_id` de ElevenLabs es solo dígitos con código de país, sin `+`.
+  // Aceptamos las dos formas porque E.164 con `+` es lo que suelen tener los
+  // consumidores, pero el `+` nunca debe llegar a la API.
+  const whatsappUserId = toNumber.replace(/^\+/, "");
+
   const template = config.whatsapp?.templates?.[templateKey];
   if (!template) {
     return NextResponse.json(
@@ -127,7 +135,7 @@ export async function POST(req: NextRequest) {
     const response = await getElevenLabsClient().conversationalAi.whatsapp.outboundMessage({
       agentId,
       whatsappPhoneNumberId: phoneNumberId,
-      whatsappUserId: toNumber,
+      whatsappUserId,
       templateName: template.name,
       templateLanguageCode: template.languageCode,
       templateParams:

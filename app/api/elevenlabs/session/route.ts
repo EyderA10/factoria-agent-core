@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { elevenLabsErrorMessage, sessionForAgent } from "@/lib/elevenlabs";
+import { elevenLabsErrorMessage, hasElevenLabsApiKey, sessionForAgent } from "@/lib/elevenlabs";
 import { loadTenantConfig } from "@/lib/tenants/store";
 import { isOriginAllowed } from "@/lib/tenants/model";
 import { DEFAULT_RULES, clientIpFrom, postgresRateLimiter } from "@/lib/ratelimit";
@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * Endpoint que el widget FactorIA llama antes de iniciar una conversación.
- * - Con ELEVENLABS_API_KEY → devuelve un signed URL (agente privado, sin exponer la key).
- * - Sin API key pero con agente provisionado → devuelve el agentId.
- * - Sin configuración → 503 con instrucciones para que el widget muestre el estado "no configurado".
+ * - Con ELEVENLABS_API_KEY → devuelve un signed URL (agente privado, sin exponer la key
+ *   ni el agentId).
+ * - Sin API key → 503: no hay sesión.
+ * - Sin agente provisionado → 400 con instrucciones para el estado "no configurado".
  * - Error de ElevenLabs → 502 con el `detail.message` real del proveedor y su
  *   `request_id`. 502 y no 500: el core está vivo, quien falla es la dependencia.
  *
@@ -48,6 +49,15 @@ export async function GET(req: NextRequest) {
   const origin = req.headers.get("origin");
   if (!isOriginAllowed(config.allowedOrigins, origin)) {
     return NextResponse.json({ error: "origin_not_allowed" }, { status: 403 });
+  }
+
+  // Antes de gastar cuota: si no hay key no habrá sesión, y el mensaje de error
+  // del cliente no debe distinguir "sin key" de "sin agente provisionado".
+  if (!hasElevenLabsApiKey()) {
+    return NextResponse.json(
+      { error: "not_configured", hint: "El core no tiene ELEVENLABS_API_KEY configurada en este entorno." },
+      { status: 503 }
+    );
   }
 
   const perIp = await postgresRateLimiter.hit(

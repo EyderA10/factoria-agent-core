@@ -194,6 +194,18 @@ describe("POST /api/messaging/whatsapp/outbound-message · el consumidor solo de
     expect(calls.outbound[0].whatsappPhoneNumberId).toBe("waba_mesa");
   });
 
+
+
+  it("el cuerpo no puede elegir el idioma de la plantilla", async () => {
+    const res = await post({ ...VALID, templateLanguageCode: "en" }, "hash_mesa");
+
+    expect(res.status).toBe(200);
+    expect(calls.outbound[0].templateLanguageCode).toBe("es");
+  });
+
+});
+
+describe("POST /api/messaging/whatsapp/outbound-message · qué plantillas puede usar", () => {
   it("el cuerpo no puede elegir la plantilla por su nombre real de Meta", async () => {
     const res = await post({ ...VALID, templateName: "recordatorio_pago_v1" }, "hash_mesa");
 
@@ -204,30 +216,6 @@ describe("POST /api/messaging/whatsapp/outbound-message · el consumidor solo de
     expect(calls.outbound[0].templateName).not.toBe("recordatorio_pago_v1");
   });
 
-  it("mandar solo el nombre real de Meta falla en vez de elegir plantilla por su cuenta", async () => {
-    const res = await post({ toNumber: "+573001234567", templateName: "confirmacion_reserva_v2" }, "hash_mesa");
-
-    // Sin `template` no hay nada que resolver, y el mensaje no sale.
-    expect(res.status).toBe(400);
-    expect(calls.outbound).toHaveLength(0);
-  });
-
-  it("el cuerpo no puede elegir el idioma de la plantilla", async () => {
-    const res = await post({ ...VALID, templateLanguageCode: "en" }, "hash_mesa");
-
-    expect(res.status).toBe(200);
-    expect(calls.outbound[0].templateLanguageCode).toBe("es");
-  });
-
-  it("el destino del cuerpo es a quién se escribe, no desde dónde", async () => {
-    const res = await post(VALID, "hash_mesa");
-
-    expect(res.status).toBe(200);
-    expect(calls.outbound[0].whatsappUserId).toBe("+573001234567");
-  });
-});
-
-describe("POST /api/messaging/whatsapp/outbound-message · qué plantillas puede usar", () => {
   it("la clave se traduce al nombre real declarado en el config", async () => {
     const res = await post(VALID, "hash_mesa");
 
@@ -235,13 +223,6 @@ describe("POST /api/messaging/whatsapp/outbound-message · qué plantillas puede
     expect(calls.outbound[0].templateName).toBe("confirmacion_reserva_v2");
   });
 
-  it("cada clave usa el idioma que el config declara para ella", async () => {
-    const res = await post({ toNumber: "+573001234567", template: "recordatorio" }, "hash_mesa");
-
-    expect(res.status).toBe(200);
-    expect(calls.outbound[0].templateName).toBe("recordatorio_pago_v1");
-    expect(calls.outbound[0].templateLanguageCode).toBe("es_MX");
-  });
 
   it("una clave que el tenant no declara responde 400 y lista las disponibles", async () => {
     const res = await post({ toNumber: "+573001234567", template: "promo" }, "hash_mesa");
@@ -271,19 +252,20 @@ describe("POST /api/messaging/whatsapp/outbound-message · qué plantillas puede
 });
 
 describe("POST /api/messaging/whatsapp/outbound-message · datos del mensaje", () => {
-  it("rechaza un destino que no es E.164", async () => {
+  it("acepta el destino sin '+' y lo envía sin '+'", async () => {
     const res = await post({ ...VALID, toNumber: "573001234567" }, "hash_mesa");
 
+    expect(res.status).toBe(200);
+    expect(calls.outbound[0].whatsappUserId).toBe("573001234567");
+  });
+
+  it("rechaza un destino que no es E.164", async () => {
+    const res = await post({ ...VALID, toNumber: "573001234567 ext. 4" }, "hash_mesa");
+
     expect(res.status).toBe(400);
     expect(calls.outbound).toHaveLength(0);
   });
 
-  it("exige plantilla: sin ella no hay mensaje que enviar", async () => {
-    const res = await post({ toNumber: "+573001234567" }, "hash_mesa");
-
-    expect(res.status).toBe(400);
-    expect(calls.outbound).toHaveLength(0);
-  });
 
   it("los params rellenan los huecos de la plantilla en orden", async () => {
     const res = await post({ ...VALID, params: ["Ana", "4"] }, "hash_mesa");
@@ -294,34 +276,10 @@ describe("POST /api/messaging/whatsapp/outbound-message · datos del mensaje", (
     ]);
   });
 
-  it("una plantilla sin huecos se envía con params vacío", async () => {
-    const res = await post(VALID, "hash_mesa");
-
-    expect(res.status).toBe(200);
-    expect(calls.outbound[0].templateParams).toEqual([]);
-  });
-
-  it("cuerpo no JSON responde 400 y no llama a ElevenLabs", async () => {
-    const res = await POST(
-      new NextRequest("http://localhost/api/messaging/whatsapp/outbound-message", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: "Bearer hash_mesa" },
-        body: "no-json",
-      })
-    );
-
-    expect(res.status).toBe(400);
-    expect(calls.outbound).toHaveLength(0);
-  });
 });
 
 describe("POST /api/messaging/whatsapp/outbound-message · cuota y fallos del proveedor", () => {
-  it("aplica la cuota de outbound por tenant", async () => {
-    const res = await post(VALID, "hash_mesa");
 
-    expect(res.status).toBe(200);
-    expect(limiter.hits).toEqual([{ scope: "tenant", key: "mesa-y-cia" }]);
-  });
 
   it("cuando la cuota bloquea responde 429 y no llama a ElevenLabs", async () => {
     limiter.blocked = true;

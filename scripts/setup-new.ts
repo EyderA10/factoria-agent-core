@@ -149,6 +149,10 @@ async function main() {
         `3. Despídete solo si el usuario se despide o pide terminar.`,
     },
     tools,
+    // Origen único autorizado al crear el tenant: el nuestro en local. El dominio
+    // real del cliente se añade en el onboarding (checklist §6). Vacío = embed
+    // cerrado, así que dejarlo vacío sería el estado honesto pero no developer-friendly.
+    allowedOrigins: ["http://localhost:3000"],
   };
 
   // El config generado debe cumplir EXACTAMENTE el mismo modelo que el resto del core.

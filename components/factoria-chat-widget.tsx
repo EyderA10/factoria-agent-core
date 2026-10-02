@@ -26,16 +26,28 @@ interface WidgetProps {
   /** White-label: color e ícono del cliente. */
   primaryColor?: string;
   icon?: string;
+  /**
+   * `page` = el widget se ancla a la ventana (página propia del tenant).
+   * `embed` = vive dentro de un iframe dimensionado por `public/embed.js`, así que
+   * ocupa el 100% del iframe en vez de flotar con `fixed`.
+   */
+  layout?: "page" | "embed";
 }
 
-const ECHO_WINDOW_MS = 2000;
+const PANEL_BASE =
+  "flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/95 text-white shadow-2xl backdrop-blur-md";
+const PANEL_LAYOUT = {
+  page: "fixed bottom-5 right-5 z-50 w-88 max-w-[calc(100vw-2.5rem)]",
+  embed: "h-full w-full",
+} as const;
 
-function normalize(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, " ").trim();
+function panelClass(layout: "page" | "embed"): string {
+  return `${PANEL_BASE} ${PANEL_LAYOUT[layout]}`;
 }
 
 export function FactorIAChatWidget({
   tenantId,
+  layout = "page",
   title = "FactorIA Agent",
   primaryColor = "#4f46e5",
   icon,
@@ -47,6 +59,10 @@ export function FactorIAChatWidget({
   const nextIdRef = useRef(1);
   const lastLocalRef = useRef<{ role: MessageRole; text: string; at: number } | null>(null);
 
+  function normalize(text: string): string {
+    return text.toLowerCase().replace(/\s+/g, " ").trim();
+  }
+  
   const pushMessage = useCallback((role: MessageRole, text: string, tentative = false) => {
     const id = nextIdRef.current++;
     lastLocalRef.current = { role, text: normalize(text), at: Date.now() };
@@ -68,7 +84,7 @@ export function FactorIAChatWidget({
         lastLocal !== null &&
         lastLocal.role === role &&
         lastLocal.text === normalize(text) &&
-        Date.now() - lastLocal.at < ECHO_WINDOW_MS;
+        Date.now() - lastLocal.at < 2000;
 
       if (isEcho) {
         lastLocalRef.current = null;
@@ -95,8 +111,15 @@ export function FactorIAChatWidget({
     setError(message || "Error en la conversación");
   }, []);
 
+  // El panel de "sin configurar" lista comandos de provisioning: es material interno
+  // y no puede enseñarse al usuario final de la web de un cliente. En producción
+  // solo se le dice que el servicio no está disponible.
   if (setupNeeded) {
-    return <SetupPanel title={title} tenantId={tenantId} />;
+    return process.env.NODE_ENV === "production" ? (
+      <UnavailablePanel title={title} layout={layout} />
+    ) : (
+      <SetupPanel title={title} layout={layout} />
+    );
   }
 
   return (
@@ -108,7 +131,7 @@ export function FactorIAChatWidget({
       onConnect={handleSdkConnect}
       onDisconnect={handleSdkDisconnect}
     >
-      <div className="fixed bottom-5 right-5 z-50 flex w-88 max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/95 text-white shadow-2xl backdrop-blur-md">
+      <div className={panelClass(layout)}>
         <Header title={title} primaryColor={primaryColor} icon={icon} />
         <MessageList messages={messages} error={error} />
         <RealControls
@@ -278,9 +301,12 @@ function RealControls({
   const connected = status === "connected";
   const busy = starting || status === "connecting";
 
+  // La clave incluye el tenant: `localStorage` es por origen y todos los widgets
+  // comparten el de FactorIA, así que con una clave global un usuario de la web de
+  // un cliente arrive al mismo id en el de otro.
   const [userId] = useState(() => {
     if (typeof window === "undefined") return "pending";
-    const key = "factoria_user_id";
+    const key = `factoria_user_id:${tenantId}`;
     let id = window.localStorage.getItem(key);
     if (!id) {
       id = `web_${Math.random().toString(36).slice(2, 10)}`;
@@ -295,7 +321,6 @@ function RealControls({
       const res = await fetch(`/api/elevenlabs/session?tenant=${encodeURIComponent(tenantId)}`);
       const body = (await res.json().catch(() => ({}))) as {
         signedUrl?: string;
-        agentId?: string;
         error?: string;
       };
 
@@ -306,13 +331,13 @@ function RealControls({
         throw new Error(body.error ?? "No se pudo obtener la sesión del agente");
       }
 
-      if (body.signedUrl) {
-        await startSession({ signedUrl: body.signedUrl, userId });
-      } else if (body.agentId) {
-        await startSession({ agentId: body.agentId, userId });
-      } else {
-        throw new Error("La sesión no devolvió agente ni signed URL");
+      // Solo signed URL. La rama de `agentId` que hubo aquí era el reflejo del
+      // fallback del servidor: si volviera a aparecer, el widget hablaría contra un
+      // agente público. Mejor que falle.
+      if (!body.signedUrl) {
+        throw new Error("La sesión no devolvió un signed URL");
       }
+      await startSession({ signedUrl: body.signedUrl, userId });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       pushMessage("agent", `Error al iniciar: ${message}`);
@@ -401,9 +426,23 @@ function RealControls({
   );
 }
 
-function SetupPanel({ title, tenantId }: { title: string; tenantId?: string }) {
+function UnavailablePanel({ title, layout }: { title: string; layout: "page" | "embed" }) {
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex w-88 max-w-[calc(100vw-2.5rem)] flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/95 p-4 text-white shadow-2xl backdrop-blur-md">
+    <div
+      role="status"
+      className={`${panelClass(layout)} gap-1 p-4`}
+    >
+      <div className="text-sm font-semibold text-slate-100">{title}</div>
+      <p className="text-xs text-slate-300">
+        Este asistente no está disponible ahora mismo. Escríbenos y te atendemos en cuanto vuelva.
+      </p>
+    </div>
+  );
+}
+
+function SetupPanel({ title, layout }: { title: string; layout: "page" | "embed" }) {
+  return (
+    <div className={`${panelClass(layout)} gap-3 p-4`}>
       <div className="text-sm font-semibold text-slate-100">{title} — sin configurar</div>
       <ol className="list-decimal space-y-1.5 pl-5 text-xs text-slate-300">
         <li>Obtén tu API key del proveedor de voz: Dashboard → API Keys.</li>
@@ -413,9 +452,7 @@ function SetupPanel({ title, tenantId }: { title: string; tenantId?: string }) {
         </li>
         <li>
           Provisiona secret + tools + agente:{" "}
-          <code className="font-mono text-emerald-400">
-            npm run setup -- --tenant {tenantId ?? "<id>"}
-          </code>
+          <code className="font-mono text-emerald-400">npm run setup -- --tenant &lt;id&gt;</code>
         </li>
         <li>
           Guarda el secret generado en <code className="font-mono text-emerald-400">.env</code> (o Vercel) y reinicia el

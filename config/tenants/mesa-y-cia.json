@@ -19,9 +19,9 @@
     "language": "es",
     "timezone": "America/Bogota",
     "ttsModel": "eleven_flash_v2_5",
-    "llm": "gemini-2.5-flash",
-  "allowedOrigins": []
+    "llm": "gemini-2.5-flash"
   },
+  "allowedOrigins": ["http://localhost:3000"],
   "tools": [
     {
       "name": "reserve_table",

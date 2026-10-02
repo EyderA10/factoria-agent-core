@@ -96,6 +96,12 @@ describe("check_stock (Vitea) — catálogo desde settings del tenant", () => {
 });
 
 describe("check_weather — integración externa real (Open-Meteo)", () => {
+  // Esta suite pega a una API de terceros, así que no puede usar el default de
+  // 5 s: en CI la latencia sube y el test moría por timeout sin que el código
+  // estuviera mal. Va por encima del presupuesto de red del handler (8 s) para
+  // que un upstream lento se vea como aserción, no como error de infraestructura.
+  const TIMEOUT = 20_000;
+
   it("responde con clima real de la ubicación configurada por el tenant", async () => {
     const res = await executeTool(mesa, "check_weather", {});
     expect(res.status).toBe("ok");
@@ -104,12 +110,34 @@ describe("check_weather — integración externa real (Open-Meteo)", () => {
       expect(res.data.terrace_recommended).toBeTypeOf("boolean");
       expect(res.data.location).toBe("Mesa & Cía");
     }
-  });
+  }, TIMEOUT);
 
   it("el fetch externo nunca se ejecuta para un tenant que no tiene la tool", async () => {
     const res = await executeTool(vitea, "check_weather", {});
     expect(res.status).toBe("tool_not_found");
   });
+
+  it("un upstream que no responde degrada a external_failed en vez de colgarse", async () => {
+    const original = globalThis.fetch;
+    // Se queda colgado hasta que el handler lo cancela con su propio presupuesto.
+    // Un mock que ignorara el signal colgaría el test: el punto es comprobar que
+    // el handler sí lo pasa y se vale de él.
+    globalThis.fetch = ((_url: unknown, init?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("The operation was aborted", "TimeoutError"))
+        );
+      })) as unknown as typeof fetch;
+    try {
+      const res = await executeTool(mesa, "check_weather", {});
+      // executeTool normaliza a status "error" y conserva el code del handler.
+      // El if estrecha el tipo igual que en los tests de éxito de arriba.
+      expect(res.status).not.toBe("ok");
+      if (res.status === "error") expect(res.code).toBe("external_failed");
+    } finally {
+      globalThis.fetch = original;
+    }
+  }, 20_000);
 });
 
 describe("registry para Vercel AI SDK (mismo contrato que el webhook)", () => {

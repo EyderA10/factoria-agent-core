@@ -9,6 +9,14 @@ type WeatherSettings = {
 };
 
 /**
+ * Presupuesto de red para Open-Meteo. Va holgado frente a la latencia normal
+ * (~0,8 s), pero por debajo del `response_timeout_secs` de la webhook tool (20 s):
+ * si el upstream se cuelga preferimos devolver `external_failed` a dejar la
+ * llamada abierta hasta que el proveedor la corte y devuelva un error opaco.
+ */
+const UPSTREAM_TIMEOUT_MS = 8_000;
+
+/**
  * Tool "check_weather" — integración EXTERNA REAL (Open-Meteo, sin API key).
  * Valida el flujo: Agente → FactorIA Tool Layer → fetch HTTP → respuesta → agente.
  * Los datos meteorológicos son reales; la ubicación y el umbral de lluvia son del tenant.
@@ -31,7 +39,7 @@ const checkWeather: ToolDefinition = {
         "https://api.open-meteo.com/v1/forecast" +
         `?latitude=${latitude}&longitude=${longitude}` +
         "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&forecast_days=7";
-      res = await fetch(url);
+      res = await fetch(url, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
     } catch (error) {
       return {
         ok: false,

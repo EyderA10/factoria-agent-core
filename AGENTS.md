@@ -26,7 +26,7 @@ widget por cliente.
 npm run dev              # next dev
 npm run build            # next build
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest run  (10 archivos · 116 tests)
+npm test                 # vitest run
 
 npm run setup:new        # genera config/tenants/<id>.json (interactivo o con flags)
 npm run setup -- --tenant <id> --validate   # valida config; no toca nada

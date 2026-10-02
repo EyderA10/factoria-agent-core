@@ -26,7 +26,7 @@ widget por cliente.
 npm run dev              # next dev
 npm run build            # next build
 npm run typecheck        # tsc --noEmit
-npm test                 # vitest run  (9 archivos · 94 tests)
+npm test                 # vitest run  (10 archivos · 116 tests)
 
 npm run setup:new        # genera config/tenants/<id>.json (interactivo o con flags)
 npm run setup -- --tenant <id> --validate   # valida config; no toca nada
@@ -66,7 +66,16 @@ Estos son el contrato del core. Si tocas algo aquí, es un cambio de arquitectur
    se reusan solo si además su `secret_id` del header es el del tenant
    (`findOwnTool`), y el agente se resuelve por `agents.elevenlabsAgentId` en DB, no
    por nombre. La URL del webhook sigue siendo `/api/tools/<tool>` pelada: el
-   dispatcher enruta por ruta.
+   dispatcher enruta por ruta. En los canales outbound pasa igual: `telephony` y
+   `whatsapp` resuelven número y `agentId` server-side, y el consumidor de WhatsApp
+   nombra una **clave** de `whatsapp.templates`, nunca el nombre real de Meta (las
+   plantillas se aprueban por WABA, así que el nombre libre le daría acceso a todas).
+1c. **Un canal outbound solo expone lo que el consumidor debe decidir.** En ambos
+   endpoints el cuerpo lleva el destino y, en WhatsApp, los datos que rellenan los
+   placeholders de la plantilla. El resto —agente, número emisor, plantilla, idioma—
+   sale del config del tenant. `template` es obligatoria a propósito: si quien llama
+   manda el nombre de Meta en vez de la clave, la petición falla con `400` en vez de
+   enviar en silencio una plantilla que no era la pretendida.
 2. **El payload se valida con el contrato Zod derivado del `inputSchema` del tenant**
    *antes* de ejecutar el handler.
 3. **Los handlers son genéricos y leen los datos de negocio de `tenant.settings`.**
@@ -146,6 +155,8 @@ app/api/tools/[toolName]/    dispatcher: auth → tenant → Zod → handler →
 app/api/elevenlabs/session/  sesión firmada
 app/api/widget/config/       config pública white-label
 app/api/webhooks/elevenlabs/ post-call: HMAC + persistencia
+app/api/telephony/outbound-call/  llamada saliente (agentId y número server-side)
+app/api/messaging/whatsapp/outbound-message/  mensaje saliente (plantilla por clave)
 app/widget/[tenant]/         widget por tenant
 components/                  factoria-chat-widget.tsx y compañía
 tests/                       config, contrato Zod, aislamiento, handlers

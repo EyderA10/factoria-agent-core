@@ -63,6 +63,7 @@ app/
 ├─ api/tools/[toolName]/      #   DISPATCHER: auth → tenant → Zod → handler → persist
 ├─ api/elevenlabs/session/    #   signed URL (exige ?tenant=; origen y cuota)
 ├─ api/telephony/outbound-call/  #  llamada saliente (auth por secret del tenant)
+├─ api/messaging/whatsapp/outbound-message/  # mensaje saliente (plantilla por tenant)
 ├─ api/widget/config/         #   config pública white-label por tenant (sin agentId)
 ├─ api/webhooks/elevenlabs/   #   post-call webhook (HMAC + idempotente)
 └─ widget/[tenant]/           #   widget por tenant (branding del cliente)
@@ -175,9 +176,10 @@ comandos.
 - Redis y Langfuse están **diseñados pero no implementados**. El rate limiting que sí
   existe usa Postgres detrás de la interfaz `RateLimiter`, así que migrarlo a Redis es
   cambiar un adaptador, no las rutas. Ver `docs/architecture-decisions.md`.
-- WhatsApp y telefonía requieren credenciales del cliente; el core ya tiene el
-  dispatcher y la persistencia, falta el adaptador de canal. Mientras el workspace no
-  tenga números importados, `/api/telephony/outbound-call` responde `503`.
+- WhatsApp y telefonía requieren credenciales del cliente (número, WABA y plantillas
+  aprobadas). Los dos endpoints outbound existen y devuelven `503` con el motivo exacto
+  mientras el tenant no declare su número: es el último paso de la ruta, no un fallo.
+  El estado por canal está en `docs/runbook-interno.md`.
 - El widget se entrega como página por tenant; para embeber en el sitio del cliente
   basta un `iframe` a `/widget/<id>` o consumir `/api/widget/config`.
 - No hay agente "por defecto" global ni modo demo: el agente de cada widget se resuelve

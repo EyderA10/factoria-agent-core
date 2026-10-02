@@ -7,10 +7,12 @@ cada **tenant** declara su identidad, su agente, sus tools y sus reglas de negoc
 ```mermaid
 flowchart TD
     VISITOR["Cliente / Visitante"]
+    CLIENTWEB["Web del cliente<br/>&lt;script src=.../embed.js data-tenant=&lt;id&gt;&gt;"]
 
     subgraph CORE["FactorIA Agent Core · Next.js"]
         direction TB
-        WIDGET["Widget white-label<br/>/widget/&lt;tenant&gt;"]
+        LOADER["Loader embed.js<br/>crea el iframe y lo dimensiona<br/>sin claves ni CORS en la web del cliente"]
+        WIDGET["Widget white-label<br/>/embed/&lt;tenant&gt; · iframe servido por FactorIA"]
         SESSION["Sesión firmada<br/>/api/elevenlabs/session"]
         TOOLLAYER["FactorIA Tool Layer<br/>1 · tenant resuelto por hash del secret · nunca por el body<br/>2 · payload validado con el contrato Zod del tenant<br/>3 · handler genérico ejecutando los settings del tenant"]
         DB[("Supabase Postgres · Drizzle<br/>conversaciones · mensajes · tool_calls · eventos")]
@@ -19,8 +21,11 @@ flowchart TD
     AGENT["ElevenLabs Conversational AI"]
     CLIENTSYS["Sistema del cliente / fuente externa"]
 
-    VISITOR --> WIDGET
+    VISITOR --> CLIENTWEB
+    CLIENTWEB --> LOADER
+    LOADER --> WIDGET
     WIDGET --> SESSION
+    WIDGET -. "frame-ancestors = allowedOrigins" .-> CLIENTWEB
     SESSION -- "signed URL" --> AGENT
     AGENT -- "webhook tool · POST /api/tools/&lt;tool&gt; · Authorization: Bearer &lt;secret del tenant&gt;" --> TOOLLAYER
     AGENT -. "post-call webhook · HMAC: transcripción · mensajes · coste" .-> DB
@@ -55,10 +60,17 @@ lib/
 │  └─ ai.ts                   #     registry para Vercel AI SDK (mismo contrato)
 ├─ db/                        #   schema, cliente y repositorio (Drizzle)
 ├─ provisioning/service.ts    #   validate / diff / provision (usado por la CLI y el panel)
-└─ elevenlabs.ts              #   cliente + signed URL server-side
-├─ ratelimit/                 #   RateLimiter (port) + adaptador Postgres
-├─ ratelimit/limiter.ts       #     interfaz + reglas por endpoint
-├─ ratelimit/postgres.ts      #     upsert atómico, fail-open, IP de x-forwarded-for
+├─ elevenlabs.ts              #   cliente + signed URL server-side
+├─ embed.ts                   #   contrato del embed + cabeceras de seguridad
+└─ ratelimit/
+   ├─ limiter.ts              #     interfaz + reglas por endpoint
+   └─ postgres.ts             #     upsert atómico, fail-open, IP de x-forwarded-for
+components/
+├─ factoria-chat-widget.tsx   #   widget white-label
+└─ factoria-embed-shell.tsx   #   burbuja + panel dentro del iframe + handshake
+public/
+└─ embed.js                   #   loader vanilla que el cliente pega en su web
+proxy.ts                      #   cabeceras de /embed (frame-ancestors por tenant)
 app/
 ├─ api/tools/[toolName]/      #   DISPATCHER: auth → tenant → Zod → handler → persist
 ├─ api/elevenlabs/session/    #   signed URL (exige ?tenant=; origen y cuota)
@@ -66,7 +78,8 @@ app/
 ├─ api/messaging/whatsapp/outbound-message/  # mensaje saliente (plantilla por tenant)
 ├─ api/widget/config/         #   config pública white-label por tenant (sin agentId)
 ├─ api/webhooks/elevenlabs/   #   post-call webhook (HMAC + idempotente)
-└─ widget/[tenant]/           #   widget por tenant (branding del cliente)
+├─ widget/[tenant]/           #   widget por tenant (página propia, para revisar)
+└─ embed/[tenant]/            #   lo que se embebe en la web del cliente
 scripts/
 ├─ setup.ts                   #   CLI de provisioning (idempotente)
 └─ setup-new.ts               #   generador interactivo de un tenant
@@ -154,13 +167,32 @@ comandos.
 `npm run typecheck && npm test && npm run build` es exactamente lo que corre
 `.github/workflows/ci.yml` en cada push a `main` y en cada PR.
 
-## Ver el widget
+## Ver y embeber el widget
 
-- `/widget/mesa-y-cia`, `/widget/vitea` → widget white-label del cliente.
+- `/widget/mesa-y-cia`, `/widget/vitea` → widget white-label del cliente, en su propia
+  página. Es la vista para revisar, no la vía de integración.
 - `/widget` → índice de tenants. Solo en desarrollo: en producción responde `404`.
-- `/api/widget/config?tenant=<id>` → config pública para embeber (branding, primer
-  mensaje y nombres/descripciones de tools). Nunca incluye secretos, el `agentId` ni las
-  reglas de negocio, y sin `tenant` en producción responde `403`.
+- `/api/widget/config?tenant=<id>` → config pública (branding, primer mensaje y
+  nombres/descripciones de tools). Nunca incluye secretos, el `agentId` ni las reglas de
+  negocio, y sin `tenant` en producción responde `403`.
+
+### Integrarlo en la web del cliente
+
+Basta con un `<script>`. El loader crea un iframe servido por FactorIA y lo
+dimensiona solo; la web del cliente no recibe claves, ni endpoints de sesión, ni CORS.
+
+```html
+<script src="https://EMBED_HOST/embed.js" data-tenant="<id>" defer></script>
+```
+
+Dos condiciones del lado de FactorIA antes de que funcione:
+
+- El dominio del cliente tiene que estar en `allowedOrigins` de su config, o el
+  navegador lo bloquea por `frame-ancestors`. Con la lista vacía el embed queda cerrado.
+- Su propia respuesta necesita permitir el micrófono y el iframe hacia `EMBED_HOST`
+  (su `Permissions-Policy` y su CSP). Nosotros solo controlamos nuestra parte.
+
+El flujo completo está en `docs/runbook-interno.md` §6.
 
 ## Tenants incluidos
 
@@ -180,8 +212,9 @@ comandos.
   aprobadas). Los dos endpoints outbound existen y devuelven `503` con el motivo exacto
   mientras el tenant no declare su número: es el último paso de la ruta, no un fallo.
   El estado por canal está en `docs/runbook-interno.md`.
-- El widget se entrega como página por tenant; para embeber en el sitio del cliente
-  basta un `iframe` a `/widget/<id>` o consumir `/api/widget/config`.
+- El widget se entrega embebido en un iframe servido por FactorIA: el cliente pega
+  `embed.js` y nada más. `/widget/<id>` queda como vista de revisión. El aislamiento del
+  embed se decide con `allowedOrigins`, la misma lista que valida el `Origin` de la API.
 - No hay agente "por defecto" global ni modo demo: el agente de cada widget se resuelve
   en DB a partir del tenant. Si un tenant no está provisionado, el widget lo dice con
   los pasos exactos para provisionarlo.

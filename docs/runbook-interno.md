@@ -104,14 +104,24 @@ SELECT started_at, to_number, status FROM outbound_calls WHERE tenant_id = '<id>
 
 ## 6. Cómo funciona el embed
 
-```
-web del cliente                 core.factoria.ai
-───────────────                 ────────────────────────────
-<script src=.../embed.js>  ──▶  /embed/<tenant>
-        │                            │
-        │  crea <iframe>             │  renderiza burbuja + panel
-        │  ◀── factoria-embed:init ──┤  (te dice su origen)
-        │  factoria-embed:resize ──▶ │  (mide el DOM con ResizeObserver)
+```mermaid
+sequenceDiagram
+    participant W as Web del cliente
+    participant L as Loader embed.js
+    participant F as Shell /embed/<tenant>
+
+    W->>L: carga el script con data-tenant
+    L->>L: valida el tenant contra el patrón y saca el origen del propio script
+    L->>F: crea el iframe con sandbox y allow=microphone
+    F-->>L: sirve la página con frame-ancestors de allowedOrigins
+    L->>F: factoria-embed:init con el origen de la web del cliente
+    F->>F: exige event.source === window.parent y guarda parentOrigin
+    F->>L: factoria-embed:resize con el tamaño inicial
+    loop en cada cambio del DOM (ResizeObserver)
+        F->>L: factoria-embed:resize con width y height
+        L->>L: exige event.origin === origen de FactorIA y recorta al viewport
+        L->>L: aplica el tamaño al iframe
+    end
 ```
 
 Tres decisiones que conviene no deshacer sin pensarlo:

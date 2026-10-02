@@ -139,9 +139,16 @@ npm run setup -- --tenant <id>                             # 4. provisiona
   las tools viejas y crea otras con id nuevo. Los agentes siguen apuntando a los ids
   anteriores hasta que corres `npm run setup -- --tenant <id> --force-update`, y las
   tools viejas quedan huérfanas en el workspace hasta que las borres a mano.
-- **Diagramas de flujo en Markdown = Mermaid**, no ASCII. En las etiquetas de Mermaid
-  escapa `<` y `>` como `&lt;` y `&gt;` (si no, Mermaid los toma por etiquetas HTML) y
-  evita `<br/>` en las etiquetas de arista.
+- **Diagramas de flujo en Markdown = Mermaid**, no ASCII. Ojo con el escapado, que
+  depende del tipo de diagrama y en `sequenceDiagram` es contraproductivo:
+  - En `flowchart` (etiquetas de nodo, que Mermaid renderiza como HTML) escapa `<` y
+    `>` como `&lt;` y `&gt;`, o Mermaid los toma por etiquetas HTML.
+  - En `sequenceDiagram` los actores y los mensajes **no** se renderizan como HTML:
+    escribe `<tenant>` literal. Si lo escapas, el diagrama deja de parsear.
+  - Evita `<br/>` en las etiquetas de arista.
+  - Los paréntesis en el alias de `participant X as ...` sí valen.
+  - Para comprobarlo sin abrir el navegador:
+    `mermaid.parse(code)`, que no necesita DOM y detecta los errores de sintaxis.
 
 ## Trampas conocidas
 
